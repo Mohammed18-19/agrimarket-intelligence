@@ -1,0 +1,85 @@
+
+# ==========================================
+# 1. Data ingestion and processing
+# ==========================================
+pandas
+numpy
+requests
+httpx
+python-dotenv
+pyyaml
+pyarrow
+duckdb
+
+# ==========================================
+# 2. Data validation and schemas
+# ==========================================
+pydantic
+pandera
+
+# ==========================================
+# 3. Geospatial and satellite data
+# ==========================================
+geopandas
+shapely
+pyproj
+rasterio
+xarray
+rioxarray
+netCDF4
+
+# ==========================================
+# 4. Machine learning and forecasting
+# ==========================================
+scikit-learn
+scipy
+statsmodels
+xgboost
+lightgbm
+joblib
+
+# ==========================================
+# 5. Multi-agent AI and LLM orchestration
+# ==========================================
+langgraph
+langchain
+langchain-core
+langchain-community
+langchain-openai
+
+# ==========================================
+# 6. API and data models
+# ==========================================
+fastapi
+uvicorn[standard]
+python-multipart
+
+# ==========================================
+# 7. Database and geospatial storage
+# ==========================================
+sqlalchemy
+psycopg[binary]
+geoalchemy2
+alembic
+
+# ==========================================
+# 8. Dashboard and visualization
+# ==========================================
+streamlit
+plotly
+folium
+streamlit-folium
+
+# ==========================================
+# 9. Testing and code quality
+# ==========================================
+pytest
+pytest-cov
+hypothesis
+ruff
+mypy
+
+# ==========================================
+# 10. Experiment tracking
+# ==========================================
+mlflow
