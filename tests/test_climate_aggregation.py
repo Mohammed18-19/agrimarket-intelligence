@@ -73,19 +73,26 @@ def test_rejects_non_numeric_climate_measurements(daily_data):
     with pytest.raises(ValueError, match="numeric"):
         aggregate_daily_climate(invalid)
 
-
-def test_rejects_missing_climate_measurements(daily_data):
-    incomplete = daily_data.copy()
-    incomplete.loc[0, "T2M"] = float("nan")
-
-    with pytest.raises(ValueError, match="missing"):
-        aggregate_daily_climate(incomplete)
-
-
-def test_rejects_non_numeric_climate_measurements(daily_data):
+def test_rejects_infinite_climate_measurements(daily_data):
     invalid = daily_data.copy()
-    invalid["T2M"] = invalid["T2M"].astype(object)
-    invalid.loc[0, "T2M"] = "invalid"
+    invalid.loc[0, "T2M"] = float("inf")
 
-    with pytest.raises(ValueError, match="numeric"):
+    with pytest.raises(ValueError, match="finite"):
+        aggregate_daily_climate(invalid)
+
+
+def test_rejects_invalid_latitude(daily_data):
+    invalid = daily_data.copy()
+    invalid.loc[0, "latitude"] = 95.0
+
+    with pytest.raises(ValueError, match="Latitude"):
+        aggregate_daily_climate(invalid)
+
+
+def test_rejects_maximum_temperature_below_minimum(daily_data):
+    invalid = daily_data.copy()
+    invalid.loc[0, "T2M_MAX"] = 0.0
+    invalid.loc[0, "T2M_MIN"] = 5.0
+
+    with pytest.raises(ValueError, match="Maximum temperature"):
         aggregate_daily_climate(invalid)

@@ -9,6 +9,8 @@ description = "Agricultural production and climate intelligence for Morocco"
 requires-python = ">=3.12"
 dependencies = [
     "pandas",
+    "numpy",
+    "requests",
 ]
 
 [project.optional-dependencies]

@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from agrimarket.ingestion.cleaning import clean_faostat_production
+from agrimarket.ingestion.faostat import load_faostat_csv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +36,7 @@ def validate_processed_data(df: pd.DataFrame) -> None:
 
 def main() -> None:
     # Read the original dataset without modifying it.
-    raw_df = pd.read_csv(RAW_FILE)
+    raw_df = load_faostat_csv(RAW_FILE)
 
     # Clean the data for production analysis.
     cleaned_df = clean_faostat_production(raw_df)

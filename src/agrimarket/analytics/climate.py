@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 
@@ -56,6 +57,20 @@ def aggregate_daily_climate(df: pd.DataFrame) -> pd.DataFrame:
 
     if result[measurement_columns].isna().any().any():
         raise ValueError("Climate measurements cannot be missing.")
+
+    if not np.isfinite(
+        result[measurement_columns].to_numpy(dtype=float)
+    ).all():
+        raise ValueError("Climate measurements must be finite.")
+
+    if not result["latitude"].between(-90, 90).all():
+        raise ValueError("Latitude values must be between -90 and 90.")
+
+    if not result["longitude"].between(-180, 180).all():
+        raise ValueError("Longitude values must be between -180 and 180.")
+
+    if (result["T2M_MAX"] < result["T2M_MIN"]).any():
+        raise ValueError("Maximum temperature cannot be below minimum temperature.")
 
     if result.duplicated(["date", "location"]).any():
         raise ValueError("Duplicate date-location records detected.")
