@@ -25,9 +25,50 @@ def api_client(tmp_path):
         }
     ]).to_csv(forecast_path, index=False)
 
+    climate_path = tmp_path / "climate.csv"
+    pd.DataFrame([
+        {
+            "location": "Agadir",
+            "latitude": 30.4278,
+            "longitude": -9.5981,
+            "year": 2023,
+            "mean_temperature_c": 21.0,
+            "mean_daily_max_temperature_c": 28.0,
+            "mean_daily_min_temperature_c": 15.0,
+            "total_precipitation": 250.0,
+            "mean_daily_solar_radiation": 20.5,
+            "days_observed": 365,
+        },
+        {
+            "location": "Agadir",
+            "latitude": 30.4278,
+            "longitude": -9.5981,
+            "year": 2024,
+            "mean_temperature_c": 22.0,
+            "mean_daily_max_temperature_c": 29.0,
+            "mean_daily_min_temperature_c": 16.0,
+            "total_precipitation": 200.0,
+            "mean_daily_solar_radiation": 21.0,
+            "days_observed": 366,
+        },
+        {
+            "location": "Fes",
+            "latitude": 34.0331,
+            "longitude": -5.0003,
+            "year": 2024,
+            "mean_temperature_c": 19.0,
+            "mean_daily_max_temperature_c": 26.0,
+            "mean_daily_min_temperature_c": 12.0,
+            "total_precipitation": 300.0,
+            "mean_daily_solar_radiation": 19.0,
+            "days_observed": 366,
+        },
+    ]).to_csv(climate_path, index=False)
+
     app = create_app(
         production_path=production_path,
         forecast_path=forecast_path,
+        climate_path=climate_path,
     )
     app.config["TESTING"] = True
 
@@ -115,3 +156,53 @@ def test_missing_forecast_file_returns_503(tmp_path):
 
     assert response.status_code == 503
     assert "error" in response.json
+
+
+def test_climate_returns_sorted_annual_records(api_client):
+    response = api_client.get("/api/climate")
+
+    assert response.status_code == 200
+    assert response.json["count"] == 3
+    assert response.json["locations"] == ["Agadir", "Fes"]
+    assert [row["year"] for row in response.json["records"][:2]] == [
+        2023, 2024
+    ]
+
+
+def test_climate_can_filter_by_location_and_year(api_client):
+    response = api_client.get("/api/climate?location=Agadir&year=2024")
+
+    assert response.status_code == 200
+    assert response.json["count"] == 1
+    record = response.json["records"][0]
+    assert record["location"] == "Agadir"
+    assert record["year"] == 2024
+    assert record["mean_temperature_c"] == 22.0
+    assert record["total_precipitation"] == 200.0
+
+
+def test_climate_unknown_location_returns_404(api_client):
+    response = api_client.get("/api/climate?location=Unknown")
+
+    assert response.status_code == 404
+    assert "available_locations" in response.json
+
+
+def test_climate_invalid_year_returns_400(api_client):
+    response = api_client.get("/api/climate?year=twenty")
+
+    assert response.status_code == 400
+    assert "error" in response.json
+
+
+def test_climate_unknown_year_returns_404(api_client):
+    response = api_client.get("/api/climate?year=1900")
+
+    assert response.status_code == 404
+
+
+def test_health_reports_climate_dataset(api_client):
+    response = api_client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json["datasets"]["climate"] is True

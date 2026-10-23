@@ -15,11 +15,15 @@ DEFAULT_PRODUCTION_PATH = (
 DEFAULT_FORECAST_PATH = (
     PROJECT_ROOT / "data" / "processed" / "crop_production_forecasts.csv"
 )
+DEFAULT_CLIMATE_PATH = (
+    PROJECT_ROOT / "data" / "processed" / "nasa_power_annual.csv"
+)
 
 
 def create_app(
     production_path=None,
     forecast_path=None,
+    climate_path=None,
 ):
     app = Flask(__name__)
 
@@ -28,6 +32,9 @@ def create_app(
     )
     app.config["FORECAST_PATH"] = Path(
         forecast_path or DEFAULT_FORECAST_PATH
+    )
+    app.config["CLIMATE_PATH"] = Path(
+        climate_path or DEFAULT_CLIMATE_PATH
     )
 
     def load_production():
@@ -60,12 +67,16 @@ def create_app(
     def health():
         production_exists = app.config["PRODUCTION_PATH"].is_file()
         forecast_exists = app.config["FORECAST_PATH"].is_file()
+        climate_exists = app.config["CLIMATE_PATH"].is_file()
 
         return jsonify({
-            "status": "ok" if production_exists else "degraded",
+            "status": (
+                "ok" if production_exists and climate_exists else "degraded"
+            ),
             "datasets": {
                 "production": production_exists,
                 "forecasts": forecast_exists,
+                "climate": climate_exists,
             },
         }), (200 if production_exists else 503)
 
@@ -183,6 +194,93 @@ def create_app(
             "crop": crop,
             "count": len(selected),
             "forecasts": json_records(selected),
+        })
+
+
+    @app.get("/api/climate")
+    def climate():
+        """Return annual NASA POWER climate observations."""
+        path = app.config["CLIMATE_PATH"]
+
+        if not path.is_file():
+            return jsonify({"error": "Climate dataset not found"}), 503
+
+        location = request.args.get("location")
+        year_param = request.args.get("year")
+
+        try:
+            df = pd.read_csv(path)
+        except (OSError, pd.errors.ParserError):
+            return jsonify({"error": "Could not read climate dataset"}), 500
+
+        required = {
+            "location",
+            "latitude",
+            "longitude",
+            "year",
+            "mean_temperature_c",
+            "mean_daily_max_temperature_c",
+            "mean_daily_min_temperature_c",
+            "total_precipitation",
+            "mean_daily_solar_radiation",
+            "days_observed",
+        }
+        missing = required - set(df.columns)
+        if missing:
+            return jsonify({
+                "error": "Climate dataset is missing columns",
+                "missing_columns": sorted(missing),
+            }), 500
+
+        df = df[list(required)].copy()
+        df["location"] = df["location"].astype("string").str.strip()
+
+        numeric_columns = [
+            "latitude",
+            "longitude",
+            "year",
+            "mean_temperature_c",
+            "mean_daily_max_temperature_c",
+            "mean_daily_min_temperature_c",
+            "total_precipitation",
+            "mean_daily_solar_radiation",
+            "days_observed",
+        ]
+        for column in numeric_columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+
+        df = df.dropna(subset=["location", "year"])
+        df["year"] = df["year"].astype(int)
+
+        if location:
+            location = location.strip()
+            available_locations = sorted(df["location"].unique().tolist())
+            if location not in available_locations:
+                return jsonify({
+                    "error": f"Unknown climate location: {location}",
+                    "available_locations": available_locations,
+                }), 404
+            df = df.loc[df["location"] == location]
+
+        if year_param is not None:
+            try:
+                year = int(year_param)
+            except ValueError:
+                return jsonify({
+                    "error": "Year must be an integer",
+                }), 400
+            df = df.loc[df["year"] == year]
+
+        if df.empty:
+            return jsonify({"error": "No climate records found"}), 404
+
+        df = df.sort_values(["location", "year"])
+
+        return jsonify({
+            "count": len(df),
+            "locations": sorted(df["location"].unique().tolist()),
+            "years": sorted(df["year"].unique().tolist()),
+            "records": json_records(df),
         })
 
     return app
