@@ -1,5 +1,12 @@
 # AgriMarket Intelligence
 
+![AgriMarket Intelligence — Agricultural data and insights](docs/images/agrimarket-hero.png)
+
+**Better Data. Smarter Decisions. Stronger Farming Communities.**
+
+AgriMarket Intelligence combines Moroccan crop-production statistics, climate data, production analytics, and forecasting to support data-informed agricultural decisions.
+
+
 Agricultural production and climate intelligence for Morocco, built with Python and public datasets.
 
 The current milestone focuses on data ingestion, validation, cleaning, and descriptive analytics. Forecasting and agent orchestration are planned future milestones.
