@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: agrimarket-api
+    runtime: python
+    buildCommand: pip install .
+    startCommand: gunicorn agrimarket.api:app --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/health

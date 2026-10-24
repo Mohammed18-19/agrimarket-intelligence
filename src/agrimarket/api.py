@@ -1,5 +1,6 @@
 """Flask REST API for agricultural production analytics."""
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -8,7 +9,19 @@ from flask import Flask, jsonify, request
 from agrimarket.analytics.production import calculate_production_trends
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+CURRENT_ROOT = Path.cwd().resolve()
+
+PROJECT_ROOT = Path(
+    os.environ.get(
+        "AGRIMARKET_PROJECT_ROOT",
+        str(
+            CURRENT_ROOT
+            if (CURRENT_ROOT / "data" / "processed").is_dir()
+            else PACKAGE_ROOT
+        ),
+    )
+).resolve()
 DEFAULT_PRODUCTION_PATH = (
     PROJECT_ROOT / "data" / "processed" / "faostat_morocco_production.csv"
 )

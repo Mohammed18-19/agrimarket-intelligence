@@ -35,3 +35,20 @@ data/processed/*
 
 # Logs
 *.log
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Frontend local environment files
+frontend/.env*
+!frontend/.env.example
+
+# Local editor backups
+*.bak
+
+# Runtime datasets required by the deployed API
+!data/processed/faostat_morocco_production.csv
+!data/processed/crop_production_forecasts.csv
+!data/processed/nasa_power_annual.csv

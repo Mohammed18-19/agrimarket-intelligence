@@ -9,7 +9,7 @@ AgriMarket Intelligence combines Moroccan crop-production statistics, climate da
 
 Agricultural production and climate intelligence for Morocco, built with Python and public datasets.
 
-The current milestone focuses on data ingestion, validation, cleaning, and descriptive analytics. Forecasting and agent orchestration are planned future milestones.
+The project includes a Flask REST API and a Next.js dashboard for Moroccan crop-production history, year-over-year changes, annual climate indicators, and production forecasts.
 
 ## Implemented
 
@@ -81,13 +81,13 @@ These scripts write processed files and may overwrite existing outputs. The NASA
 pytest -q
 ```
 
-## Planned, not yet implemented
+## Future work
 
 - Crop suitability analysis.
-- Production or market-price forecasting.
+- Market-price forecasting (production forecasting is implemented).
 - Risk and economic scenario analysis.
 - LangGraph agent orchestration.
-- API and interactive dashboard.
+- Expanded API and dashboard capabilities.
 
 ## Current limitations
 
