@@ -11,6 +11,11 @@ Agricultural production and climate intelligence for Morocco, built with Python 
 
 The project includes a Flask REST API and a Next.js dashboard for Moroccan crop-production history, year-over-year changes, annual climate indicators, and production forecasts.
 
+
+## Dashboard Preview
+
+![AgriMarket Intelligence dashboard preview](docs/images/agrimarket-preview.png)
+
 ## Implemented
 
 - Clean and validate FAOSTAT crop production records.
