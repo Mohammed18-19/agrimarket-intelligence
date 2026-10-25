@@ -1,0 +1,204 @@
+"""Specialized, data-grounded agricultural analysis agents."""
+
+import os
+from pathlib import Path
+
+import pandas as pd
+
+
+def _data_path(filename: str) -> Path:
+    root = Path(
+        os.environ.get("AGRIMARKET_PROJECT_ROOT", Path.cwd())
+    ).resolve()
+    return root / "data" / "processed" / filename
+
+
+def _read(filename: str) -> pd.DataFrame:
+    path = _data_path(filename)
+    if not path.is_file():
+        raise FileNotFoundError(f"Dataset not found: {path}")
+    return pd.read_csv(path)
+
+
+def _records(df: pd.DataFrame, limit: int = 20) -> list[dict]:
+    """Return JSON-friendly records."""
+    return (
+        df.head(limit)
+        .astype(object)
+        .where(pd.notna(df.head(limit)), None)
+        .to_dict(orient="records")
+    )
+
+
+def production_agent(crop: str | None = None) -> dict:
+    """Analyze observed crop production and historical changes."""
+    df = _read("faostat_morocco_production.csv")
+    required = {"Item", "Year", "Unit", "Value"}
+    if not required.issubset(df.columns):
+        raise ValueError(f"Production data needs columns: {sorted(required)}")
+
+    df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+    df["Value"] = pd.to_numeric(df["Value"], errors="coerce")
+    df = df.dropna(subset=["Item", "Year", "Value"])
+
+    if crop:
+        df = df[df["Item"].astype(str).str.casefold() == crop.casefold()]
+
+    if df.empty:
+        return {"agent": "production", "status": "no_data", "records": []}
+
+    df = df.sort_values("Year")
+    latest = df.iloc[-1]
+    previous = df.iloc[-2] if len(df) > 1 else None
+
+    change = None
+    change_pct = None
+    if previous is not None:
+        change = float(latest["Value"] - previous["Value"])
+        if previous["Value"] != 0:
+            change_pct = float(change / previous["Value"] * 100)
+
+    return {
+        "agent": "production",
+        "status": "ok",
+        "crop": str(latest["Item"]) if crop else None,
+        "observations": int(len(df)),
+        "first_year": int(df["Year"].min()),
+        "latest_year": int(latest["Year"]),
+        "latest_production": float(latest["Value"]),
+        "unit": str(latest["Unit"]),
+        "previous_year_production": (
+            float(previous["Value"]) if previous is not None else None
+        ),
+        "change": change,
+        "change_percentage": change_pct,
+        "records": _records(df.sort_values("Year", ascending=False)),
+    }
+
+
+def climate_agent(location: str | None = None) -> dict:
+    """Summarize observed annual climate conditions by location."""
+    df = _read("nasa_power_annual.csv")
+    required = {
+        "location", "year", "mean_temperature_c", "total_precipitation"
+    }
+    if not required.issubset(df.columns):
+        raise ValueError(f"Climate data needs columns: {sorted(required)}")
+
+    if location:
+        df = df[
+            df["location"].astype(str).str.casefold()
+            == location.casefold()
+        ]
+
+    if df.empty:
+        return {"agent": "climate", "status": "no_data", "records": []}
+
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df = df.dropna(subset=["year"]).sort_values(["location", "year"])
+
+    numeric = [
+        col for col in (
+            "mean_temperature_c",
+            "mean_daily_max_temperature_c",
+            "mean_daily_min_temperature_c",
+            "total_precipitation",
+            "mean_daily_solar_radiation",
+        ) if col in df.columns
+    ]
+
+    return {
+        "agent": "climate",
+        "status": "ok",
+        "locations": sorted(df["location"].astype(str).unique().tolist()),
+        "years": [int(df["year"].min()), int(df["year"].max())],
+        "annual_averages": (
+            df.groupby("location")[numeric].mean().round(3).reset_index()
+            .to_dict(orient="records")
+        ),
+        "records": _records(df.sort_values("year", ascending=False)),
+        "interpretation_limit": (
+            "Climate observations alone do not establish crop suitability "
+            "or prove that climate caused a production change."
+        ),
+    }
+
+
+def forecasting_agent(crop: str | None = None) -> dict:
+    """Retrieve existing forecasts and evaluation evidence."""
+    forecasts = _read("crop_production_forecasts.csv")
+    crop_column = "crop" if "crop" in forecasts.columns else "Item"
+
+    if crop_column not in forecasts.columns:
+        raise ValueError("Forecast dataset has no crop identifier column")
+
+    if crop:
+        forecasts = forecasts[
+            forecasts[crop_column].astype(str).str.casefold()
+            == crop.casefold()
+        ]
+
+    if forecasts.empty:
+        return {"agent": "forecasting", "status": "no_data", "records": []}
+
+    result = {
+        "agent": "forecasting",
+        "status": "ok",
+        "crop": crop,
+        "records": _records(forecasts),
+        "evaluation": [],
+        "limitations": (
+            "Forecasts are model outputs, not guaranteed future production."
+        ),
+    }
+
+    evaluation_path = _data_path("forecast_evaluation.csv")
+    if evaluation_path.is_file():
+        evaluation = pd.read_csv(evaluation_path)
+        if crop and "crop" in evaluation.columns:
+            evaluation = evaluation[
+                evaluation["crop"].astype(str).str.casefold()
+                == crop.casefold()
+            ]
+        result["evaluation"] = _records(evaluation)
+
+    return result
+
+
+def validation_agent(evidence: dict) -> dict:
+    """Check agent evidence for missing data and unsupported claims."""
+    issues = []
+
+    if not isinstance(evidence, dict) or not evidence:
+        return {
+            "agent": "validation",
+            "status": "insufficient_evidence",
+            "issues": ["No evidence was provided."],
+            "approved": False,
+        }
+
+    successful = 0
+    for name, result in evidence.items():
+        if not isinstance(result, dict):
+            issues.append(f"{name}: result is not a structured object.")
+            continue
+
+        status = result.get("status")
+        if status != "ok":
+            issues.append(f"{name}: status is {status or 'missing'}.")
+            continue
+
+        successful += 1
+        if not result.get("records") and not result.get("annual_averages"):
+            issues.append(f"{name}: no supporting records were returned.")
+
+    if successful == 0:
+        issues.append("No agent returned usable evidence.")
+
+    return {
+        "agent": "validation",
+        "status": "ok" if successful and not issues else "needs_review",
+        "issues": issues,
+        "approved": successful > 0 and not issues,
+        "agents_with_usable_data": successful,
+    }
