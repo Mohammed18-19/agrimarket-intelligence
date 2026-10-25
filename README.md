@@ -1,99 +1,174 @@
 # AgriMarket Intelligence
 
-![AgriMarket Intelligence — Agricultural data and insights](docs/images/agrimarket-hero.png)
+**Data-driven agricultural intelligence for Morocco.**
 
-**Better Data. Smarter Decisions. Stronger Farming Communities.**
-
-AgriMarket Intelligence combines Moroccan crop-production statistics, climate data, production analytics, and forecasting to support data-informed agricultural decisions.
-
-
-Agricultural production and climate intelligence for Morocco, built with Python and public datasets.
-
-The project includes a Flask REST API and a Next.js dashboard for Moroccan crop-production history, year-over-year changes, annual climate indicators, and production forecasts.
-
+AgriMarket Intelligence is a data analytics platform for exploring Moroccan crop production, historical climate observations, and experimental forecasts through an interactive dashboard and an evidence-based AI Advisor.
 
 ## Dashboard Preview
 
 ![AgriMarket Intelligence dashboard preview](docs/images/agrimarket-preview.png)
 
-## Implemented
+## Key Features
 
-- Clean and validate FAOSTAT crop production records.
-- Calculate year-over-year production changes, handling missing years and zero previous-year production.
-- Rank crops by annual production when units are comparable.
-- Retrieve daily climate data from NASA POWER for five Moroccan locations.
-- Aggregate daily climate observations into annual indicators.
-- Test data validation and analytics with pytest.
+- **Crop production analytics:** Explore cleaned FAOSTAT production data for 92 crops.
+- **Interactive dashboard:** Examine historical production, forecasts, and climate indicators.
+- **Statistical forecasting:** Compare naive baseline and linear-trend estimates.
+- **Climate intelligence:** Explore processed NASA POWER observations for five Moroccan locations.
+- **AI Advisor:** Ask questions about production, climate observations, and available forecasts.
+- **Evidence transparency:** Distinguish observed data from estimates and communicate limitations.
+- **REST API:** Serve crop, production, and forecast data through Flask.
 
-## Data
+## Technology Stack
 
-### Agricultural production
+| Component | Technologies |
+|---|---|
+| Backend | Python, Flask, REST API |
+| Frontend | Next.js, React, TypeScript |
+| Data processing | pandas, NumPy |
+| Forecasting | Naive baseline, linear trend |
+| Agricultural data | FAOSTAT |
+| Climate data | NASA POWER |
+| AI integration | Evidence-based fallback, optional Groq |
+| Testing | pytest |
 
-- Source: FAOSTAT data stored locally in `data/raw/faostat_morocco_crops.csv`.
-- Period: 2015–2024.
-- Processed production data: `data/processed/faostat_morocco_production.csv`.
-- Production trends: `data/processed/faostat_production_trends.csv`.
+## Data Sources
 
-Rows with missing production values are excluded during cleaning. The trends dataset can contain missing comparison metrics where a crop has no previous consecutive year; these values should not be interpreted as zero change.
+### FAOSTAT
 
-### Climate
+Cleaned annual Moroccan crop-production records covering 2015–2024. The processed dataset currently includes 92 crops.
 
-- Source: NASA POWER daily point data.
-- Locations: Agadir, Beni Mellal, Fes, Marrakech, and Meknes.
-- Period: 2015–2024.
-- Daily observations: `data/raw/nasa_power_morocco.csv`.
-- Annual indicators: `data/processed/nasa_power_annual.csv`.
+### NASA POWER
 
-The annual climate dataset includes mean temperatures, mean daily maximum and minimum temperatures, total daily precipitation, mean daily solar radiation, and observed-day counts. The dataset represents five selected locations, not all of Morocco.
+Daily climate observations aggregated into annual indicators for five Moroccan locations. The dashboard currently highlights Agadir.
 
-## Setup
+Climate observations from one location should not be treated as representative of all Moroccan agricultural regions. The project does not assume climate and production are causally related.
 
-Python 3.12 or newer is specified in `pyproject.toml`.
+## Forecasting
+
+The project evaluates naive baseline and linear-trend forecasts using historical validation and chronological holdout evaluation.
+
+Forecasts are experimental estimates, not observed production figures or guarantees of future harvests. Validation errors describe historical performance but cannot guarantee future accuracy.
+
+## AI Advisor
+
+The advisor is designed to answer agricultural questions using available project evidence. Its intended workflow is to interpret a question, retrieve relevant evidence, generate a grounded answer, and explain uncertainty or missing information.
+
+The local evidence-based fallback can operate without a hosted model API key. Groq integration requires a valid `GROQ_API_KEY`.
+
+Question-specific evidence retrieval and unsupported-question handling still need improvement. The current production data does not provide province-level wheat yield forecasts.
+
+## Architecture
+
+```text
+FAOSTAT ───────┐
+               ├──> Data processing ──> Processed datasets
+NASA POWER ────┘                           │
+                                           ├──> Forecasting and evaluation
+                                           ├──> Flask REST API
+                                           └──> AI evidence retrieval
+                                                      │
+                                                      v
+                                              Next.js dashboard
+```
+
+## Getting Started
+
+### Requirements
+
+- Python and project dependencies
+- Node.js and npm
+
+### 1. Clone the repository
 
 ```bash
-python -m venv .venv
+git clone https://github.com/Mohammed18-19/agrimarket-intelligence.git
+cd agrimarket-intelligence
+```
+
+### 2. Set up Python
+
+```bash
+python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install --upgrade pip
+pip install -e .
 ```
 
-## Run the pipeline
+If the repository defines a different installation procedure, follow its dependency files.
 
-Run commands from the repository root.
+### 3. Start the backend
 
-Process the existing FAOSTAT raw CSV:
+From the project root:
 
 ```bash
-python scripts/process_faostat.py
+source .venv/bin/activate
+python -m flask --app src.agrimarket.api run --host 127.0.0.1 --port 5000
 ```
 
-Aggregate the existing NASA POWER daily CSV:
+### 4. Start the frontend
+
+In a second terminal:
 
 ```bash
-python scripts/aggregate_climate.py
+cd frontend
+npm install
+npm run dev
 ```
 
-Calculate production trends:
+Open [http://localhost:3000](http://localhost:3000).
+
+### 5. Optional AI provider
+
+Configure `GROQ_API_KEY` locally to use the hosted Groq integration. Never commit API keys or other secrets.
+
+## Testing
+
+From the project root, with the Python environment activated:
 
 ```bash
-python scripts/analyze_production.py
+pytest
 ```
 
-These scripts write processed files and may overwrite existing outputs. The NASA collection script makes external requests and should only be run when a fresh download is intended.
-
-## Tests
+To check the frontend production build:
 
 ```bash
-pytest -q
+cd frontend
+npm run build
 ```
 
-## Future work
+## Current Limitations
 
-- Crop suitability analysis.
-- Market-price forecasting (production forecasting is implemented).
-- Risk and economic scenario analysis.
-- LangGraph agent orchestration.
-- Expanded API and dashboard capabilities.
+- Production data is national-level, not province-level yield data.
+- Forecast accuracy varies by crop and historical pattern.
+- Climate coverage is limited to locations in the processed dataset.
+- Hosted AI responses require provider configuration; the fallback has limited question interpretation.
+- Crop suitability, market-price analysis, and regional risk assessment remain potential extensions.
 
-## Current limitations
+## Roadmap
 
-The current analytics are descriptive, not predictive. The project does not yet implement a forecasting model, market-price dataset, production-per-hectare yield model, agent workflow, API, or dashboard.
+- [ ] Improve AI question classification and evidence retrieval.
+- [ ] Add automated evaluation for AI answers and unsupported questions.
+- [ ] Strengthen chronological forecast evaluation.
+- [ ] Expand regional agricultural data using reliable sources.
+- [ ] Explore crop suitability and agricultural risk analysis.
+- [ ] Add market-price analysis when suitable datasets are available.
+- [ ] Improve deployment and end-to-end testing.
+
+## Project Goals
+
+This portfolio project demonstrates practical work in Python backend development, data processing, time-series forecasting, interactive dashboards, and evidence-grounded AI applications.
+
+## Responsible Use
+
+This project is intended for analytical exploration and educational purposes. Forecasts should not replace official agricultural statistics, local agronomic expertise, or field-level assessment.
+
+## Author
+
+**Mohammed Ain Tomar**
+
+- GitHub: [Mohammed18-19](https://github.com/Mohammed18-19)
+- LinkedIn: [Mohammed Ain Tomar](https://linkedin.com/in/mohammed-aintomar-a94a37262)
+
+---
+
+*Exploring how agricultural data and evidence-based AI can support better-informed decisions in Morocco.*
