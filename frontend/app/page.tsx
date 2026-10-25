@@ -1,5 +1,19 @@
 'use client';
 
+import dynamic from "next/dynamic";
+
+const GlobalGlobe = dynamic(
+  () => import("./components/GlobalGlobe"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="global-globe-stage">
+        <p style={{ color: "#9be8ae" }}>Loading Earth visualization…</p>
+      </div>
+    ),
+  },
+);
+
 import MarkdownAnalysis from '../components/MarkdownAnalysis';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -16,10 +30,10 @@ import {
   Leaf,
   RefreshCw,
   Search,
+  Sparkles,
   Sprout,
   TrendingUp,
-  Wheat,
-} from 'lucide-react';
+  Wheat, Moon, Sun, Globe2} from 'lucide-react';
 import AIAdvisorInsights from "../components/AIAdvisorInsights";
 import {
   CartesianGrid,
@@ -144,6 +158,8 @@ function renderAnalysis(markdown: string) {
 }
 
 export default function AgriMarketDashboard() {
+
+
   const [crops, setCrops] = useState<string[]>([]);
   const [crop, setCrop] = useState('Wheat');
   const [search, setSearch] = useState('');
@@ -339,18 +355,18 @@ export default function AgriMarketDashboard() {
   const unit = summary?.unit ?? forecast?.unit ?? 't';
 
   return (
-    <main className="min-h-screen bg-[#f6f7f2] px-4 py-5 text-[#18271e] sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-[1500px] space-y-6">
-        <header className="flex flex-col justify-between gap-5 rounded-[28px] bg-[#173d2b] p-6 text-white shadow-sm sm:p-8 lg:flex-row lg:items-center">
+    <main data-theme="dark" className="agri-app min-h-screen px-4 py-5 sm:px-6 lg:px-8">
+      <div className="agri-shell animate-enter mx-auto max-w-[1500px] space-y-6">
+        <header className="flex flex-col justify-between gap-5 agri-hero relative overflow-hidden rounded-[28px] bg-[#073d2b] p-6 text-white shadow-sm sm:p-8 lg:flex-row lg:items-center">
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold tracking-wide text-[#d4ead8]">
               <Sprout className="h-4 w-4" />
               MOROCCO · AGRICULTURAL INTELLIGENCE
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+            <h1 className="relative z-10 text-3xl font-semibold tracking-tight sm:text-4xl">
               AgriMarket Intelligence
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
+            <p className="relative z-10 mt-2 max-w-2xl text-sm leading-6 text-white/75 sm:text-base">
               Understand crop production, explore historical performance, and review transparent forecasts.
             </p>
           </div>
@@ -374,6 +390,7 @@ export default function AgriMarketDashboard() {
               </div>
               <ChevronDown className="h-4 w-4 shrink-0 text-white/60" />
             </div>
+            
             <button
               type="button"
               onClick={() => setReloadKey((key) => key + 1)}
@@ -400,6 +417,70 @@ export default function AgriMarketDashboard() {
           ))}
         </nav>
 
+
+
+        <section id="global-overview" className="global-overview-grid">
+          <article className="global-intro-panel">
+            <div className="global-eyebrow">
+              <Globe2 className="h-4 w-4" />
+              AGRICULTURE INTELLIGENCE PLATFORM
+            </div>
+            <h2 className="global-title">
+              Agriculture,<br />
+              in a new perspective.
+            </h2>
+            <p className="global-description">
+              Explore the Earth while analyzing verified Moroccan crop production
+              and climate observations.
+            </p>
+            <div className="global-data-status">
+              <span className="global-live-dot" />
+              <span>DATA CONNECTION</span>
+              <strong>{loadingData || loadingClimate ? "SYNCING" : error || climateError ? "CHECK DATA" : "CONNECTED"}</strong>
+            </div>
+          </article>
+
+          <div className="global-globe-column">
+            <GlobalGlobe />
+          </div>
+
+          <aside className="global-insights-panel">
+            <div className="global-panel-heading">
+              <span className="global-panel-icon"><Sprout className="h-4 w-4" /></span>
+              <div>
+                <p className="global-panel-kicker">SELECTED CROP</p>
+                <h3>{crop}</h3>
+              </div>
+            </div>
+
+            <div className="global-stat">
+              <span>Latest production</span>
+              <strong>{loadingData ? "Loading…" : formatNumber(summary?.latest_production, true)}</strong>
+              <small>{summary?.unit ?? "tonnes"} · {summary?.latest_year ?? "latest available year"}</small>
+            </div>
+
+            <div className="global-stat">
+              <span>Annual change</span>
+              <strong>{loadingData ? "Loading…" : percent(change)}</strong>
+              <small>Compared with the previous year</small>
+            </div>
+
+            <div className="global-stat">
+              <span>Forecast</span>
+              <strong>{loadingData ? "Loading…" : formatNumber(prediction, true)}</strong>
+              <small>{forecastYear ? `Model estimate · ${forecastYear}` : "No forecast available"}</small>
+            </div>
+
+            <div className="global-location-note">
+              <Globe2 className="h-4 w-4 shrink-0" />
+              <p>
+                <strong>Geographic scope</strong>
+                <span>Morocco · FAOSTAT production data</span>
+                <span>{climateLocation ? `Climate station: ${climateLocation}` : "NASA POWER climate observations"}</span>
+              </p>
+            </div>
+          </aside>
+        </section>
 
         {error && (
           <div role="alert" className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
@@ -710,7 +791,15 @@ export default function AgriMarketDashboard() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">LangGraph · Evidence-based analysis</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight">Agricultural AI advisor</h2>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#55c785]/40 bg-gradient-to-br from-[#16452f] to-[#0d241a] text-[#c5f08a] shadow-[0_0_24px_rgba(85,199,133,0.16)]">
+                  <Sparkles className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <div>
+                  <h2 className="text-2xl font-semibold tracking-tight text-[#e5f0e8]">Agricultural AI Advisor</h2>
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#55c785]">Evidence-based crop intelligence</p>
+                </div>
+              </div>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[#778178]">
                 Ask about Moroccan crop production, climate observations, or available forecasts.
                 Answers are based on this project's datasets and may be limited by the evidence available.
