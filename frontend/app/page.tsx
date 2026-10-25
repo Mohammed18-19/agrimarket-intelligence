@@ -1,5 +1,7 @@
 'use client';
 
+import MarkdownAnalysis from '../components/MarkdownAnalysis';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
@@ -18,6 +20,7 @@ import {
   TrendingUp,
   Wheat,
 } from 'lucide-react';
+import AIAdvisorInsights from "../components/AIAdvisorInsights";
 import {
   CartesianGrid,
   Line,
@@ -59,6 +62,19 @@ type ForecastRow = {
 type CropHistory = { crop: string; history: HistoryRow[] };
 type CropForecast = { crop: string; forecasts: ForecastRow[] };
 type CropList = { count: number; crops: string[] };
+
+type AIAnswer = {
+  question: string;
+  agents_used: string[];
+  evidence: Record<string, unknown>;
+  validation: { status?: string; approved?: boolean; [key: string]: unknown };
+  note?: string;
+  analysis?: string;
+  analysis_source?: "groq" | "fallback" | string;
+  analysis_model?: string | null;
+  analysis_fallback_reason?: string | null;
+};
+
 
 type ClimateRecord = {
   location: string;
@@ -123,6 +139,10 @@ function percent(value: number | null | undefined) {
   return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
 }
 
+function renderAnalysis(markdown: string) {
+  return <MarkdownAnalysis content={markdown} />;
+}
+
 export default function AgriMarketDashboard() {
   const [crops, setCrops] = useState<string[]>([]);
   const [crop, setCrop] = useState('Wheat');
@@ -141,6 +161,52 @@ export default function AgriMarketDashboard() {
     useState<ClimateMetric>("mean_temperature_c");
   const [loadingClimate, setLoadingClimate] = useState(true);
   const [climateError, setClimateError] = useState<string | null>(null);
+
+  const [aiQuestion, setAiQuestion] = useState("");
+  const [aiAnswer, setAiAnswer] = useState<AIAnswer | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function askAI(question = aiQuestion) {
+    const cleaned = question.trim();
+    if (!cleaned || aiLoading) return;
+
+    setAiLoading(true);
+    setAiError(null);
+    setAiAnswer(null);
+
+    try {
+      const response = await fetch("/api/ai/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: cleaned,
+          crop,
+          location: climateLocation || undefined,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          typeof body?.error === "string"
+            ? body.error
+            : `AI request failed (${response.status})`,
+        );
+      }
+
+      setAiAnswer(body as AIAnswer);
+    } catch (cause) {
+      setAiError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not complete the agricultural analysis.",
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
 
 
   useEffect(() => {
@@ -320,6 +386,21 @@ export default function AgriMarketDashboard() {
           </div>
         </header>
 
+        <nav aria-label="Dashboard sections" className="flex flex-wrap gap-2 py-1 text-sm">
+          {[
+            ["Overview", "#overview"],
+            ["Crop explorer", "#crop-explorer"],
+            ["Climate", "#climate"],
+            ["AI advisor", "#ai-advisor"],
+            ["Data & methods", "#data-methods"],
+          ].map(([label, href]) => (
+            <a key={href} href={href} className="rounded-full border border-[#e1e7dc] bg-white px-4 py-2 font-medium text-[#405447] transition hover:border-[#8ab68d] hover:bg-[#edf5e8]">
+              {label}
+            </a>
+          ))}
+        </nav>
+
+
         {error && (
           <div role="alert" className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -333,7 +414,7 @@ export default function AgriMarketDashboard() {
           </div>
         )}
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section id="overview" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             label="Latest production"
             value={loadingData ? '…' : formatNumber(summary?.latest_production, true)}
@@ -447,7 +528,7 @@ export default function AgriMarketDashboard() {
           </article>
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <section id="climate" className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
           <article className="min-w-0 rounded-[26px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-6">
             <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
               <div>
@@ -600,7 +681,7 @@ export default function AgriMarketDashboard() {
           </article>
         </section>
 
-        <section className="rounded-[26px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-6">
+        <section id="crop-explorer" className="rounded-[26px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-6">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">Explore the dataset</p>
@@ -622,6 +703,149 @@ export default function AgriMarketDashboard() {
             {filteredCrops.length === 0 && <p className="col-span-full py-5 text-center text-sm text-[#849087]">No crops match that search.</p>}
           </div>
           {filteredCrops.length > 16 && <p className="mt-3 text-xs text-[#899289]">Showing 16 matches. Use the search field to narrow the list; the selector above contains all crops.</p>}
+        </section>
+
+
+        <section id="ai-advisor" className="scroll-mt-6 rounded-[26px] border border-[#dfe8dc] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">LangGraph · Evidence-based analysis</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight">Agricultural AI advisor</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#778178]">
+                Ask about Moroccan crop production, climate observations, or available forecasts.
+                Answers are based on this project's datasets and may be limited by the evidence available.
+              </p>
+            </div>
+            <span className="rounded-full bg-[#edf5e8] px-3 py-1.5 text-xs font-semibold text-[#356947]">
+              Current crop: {crop}
+            </span>
+          </div>
+
+          <form className="mt-6" onSubmit={(event) => { event.preventDefault(); void askAI(); }}>
+            <label htmlFor="ai-question" className="mb-2 block text-sm font-semibold text-[#344538]">
+              What would you like to investigate?
+            </label>
+            <textarea
+              id="ai-question"
+              value={aiQuestion}
+              onChange={(event) => setAiQuestion(event.target.value)}
+              maxLength={1000}
+              rows={3}
+              placeholder={`Example: Summarize the production trend for ${crop} and explain what the available data cannot tell us.`}
+              className="w-full resize-y rounded-2xl border border-[#dfe6da] bg-[#fafbf8] p-4 text-sm leading-6 outline-none transition focus:border-[#8ab68d] focus:ring-2 focus:ring-[#dcebd6]"
+            />
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-[#899289]">Uses the selected crop and available local datasets. No paid model key is required for the evidence-based fallback.</p>
+              <button
+                type="submit"
+                disabled={aiLoading || !aiQuestion.trim()}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#245b3a] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#19482d] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {aiLoading ? "Analyzing evidence…" : "Analyze question"}
+                {!aiLoading && <span aria-hidden="true">→</span>}
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[
+              `What does the production history show for ${crop}?`,
+              `What climate observations are available for ${climateLocation || "Morocco"}?`,
+              `Explain the limitations of the ${crop} forecast.`,
+            ].map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                disabled={aiLoading}
+                onClick={() => { setAiQuestion(suggestion); void askAI(suggestion); }}
+                className="rounded-full border border-[#e5e9df] px-3 py-2 text-left text-xs text-[#58675b] transition hover:bg-[#f3f7ef] disabled:opacity-50"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+
+          {aiError && (
+            <div role="alert" className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+              <p className="font-semibold">Analysis could not be completed</p>
+              <p className="mt-1">{aiError}</p>
+              <p className="mt-2 text-xs">Check that the Flask API is running and inspect its terminal for errors.</p>
+            </div>
+          )}
+
+          {aiLoading && (
+            <div role="status" className="mt-5 rounded-xl bg-[#f6f7f2] p-5 text-sm text-[#667267]">
+              The specialist workflow is retrieving and validating evidence…
+            </div>
+          )}
+
+          {aiAnswer && (
+            <article className="mt-6 rounded-2xl border border-[#e5e9df] bg-[#fafbf8] p-5 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-[#253b2b]">Analysis</h3>
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-[#58675b]">
+                  Evidence status: {aiAnswer.validation?.status ?? "not specified"}
+                </span>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  aiAnswer.analysis_source === "groq"
+                    ? "bg-[#e6f2e5] text-[#285d37]"
+                    : "bg-[#fff1d6] text-[#855b17]"
+                }`}>
+                  {aiAnswer.analysis_source === "groq" ? "Generated by Groq" : "Local evidence-based fallback"}
+                </span>
+                {aiAnswer.analysis_source === "groq" && aiAnswer.analysis_model && (
+                  <span className="text-xs text-[#778178]">{aiAnswer.analysis_model}</span>
+                )}
+              </div>
+              {renderAnalysis(aiAnswer.analysis || "The workflow returned evidence but no analysis text.")}
+              <AIAdvisorInsights answer={aiAnswer} />
+              {aiAnswer.analysis_fallback_reason && (
+                <p className="mt-3 text-xs leading-5 text-[#778178]">
+                  {aiAnswer.analysis_fallback_reason}
+                </p>
+              )}
+              {aiAnswer.agents_used?.length > 0 && (
+                <div className="mt-5 border-t border-[#e5e9df] pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#718074]">Specialists used</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {aiAnswer.agents_used.map((agent) => (
+                      <span key={agent} className="rounded-full bg-[#edf5e8] px-3 py-1.5 text-xs font-medium capitalize text-[#356947]">
+                        {agent}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {aiAnswer.note && <p className="mt-4 text-xs leading-5 text-[#778178]">{aiAnswer.note}</p>}
+              <details className="mt-4 border-t border-[#e5e9df] pt-4">
+                <summary className="cursor-pointer text-sm font-semibold text-[#465348]">Inspect retrieved evidence</summary>
+                <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white p-4 text-xs leading-5 text-[#58675b]">
+                  {JSON.stringify({ evidence: aiAnswer.evidence, validation: aiAnswer.validation }, null, 2)}
+                </pre>
+              </details>
+            </article>
+          )}
+        </section>
+
+        <section id="data-methods" className="scroll-mt-6 rounded-[26px] border border-[#e5e9df] bg-white p-5 sm:p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">Transparency</p>
+          <h2 className="mt-2 text-xl font-semibold">Data sources & limitations</h2>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl bg-[#f6f7f2] p-4">
+              <h3 className="font-semibold text-[#344538]">FAOSTAT</h3>
+              <p className="mt-2 text-sm leading-6 text-[#778178]">Cleaned annual crop-production records. Historical production is observed data, not a forecast.</p>
+            </div>
+            <div className="rounded-xl bg-[#f6f7f2] p-4">
+              <h3 className="font-semibold text-[#344538]">NASA POWER</h3>
+              <p className="mt-2 text-sm leading-6 text-[#778178]">Processed annual climate indicators for the locations represented in the dataset.</p>
+            </div>
+            <div className="rounded-xl bg-[#fff9e9] p-4">
+              <h3 className="font-semibold text-[#806b3d]">Forecast limitations</h3>
+              <p className="mt-2 text-sm leading-6 text-[#806b3d]">Forecasts are experimental statistical estimates. They do not establish climate causation or guarantee future outcomes.</p>
+            </div>
+          </div>
         </section>
 
         <footer className="flex flex-col justify-between gap-2 px-1 pb-3 text-xs text-[#899289] sm:flex-row">

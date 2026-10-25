@@ -296,6 +296,48 @@ def create_app(
             "records": json_records(df),
         })
 
+    @app.post("/api/ai/ask")
+    def ai_ask():
+        """Answer an agricultural question using specialist agents."""
+        from agrimarket.ai.workflow import ask_agricultural_question
+
+        payload = request.get_json(silent=True) or {}
+        question = payload.get("question")
+
+        if not isinstance(question, str) or not question.strip():
+            return jsonify({"error": "A non-empty question is required."}), 400
+
+        crop = payload.get("crop")
+        location = payload.get("location")
+
+        if crop is not None and not isinstance(crop, str):
+            return jsonify({"error": "crop must be a string."}), 400
+        if location is not None and not isinstance(location, str):
+            return jsonify({"error": "location must be a string."}), 400
+
+        try:
+            result = ask_agricultural_question(
+                question=question,
+                crop=crop,
+                location=location,
+            )
+            from agrimarket.ai.analyst import summarize_evidence_with_metadata
+            evidence_for_summary = {
+                **result.get("evidence", {}),
+                "validation": result.get("validation", {}),
+            }
+            metadata = summarize_evidence_with_metadata(
+                question,
+                evidence_for_summary,
+            )
+            result.update(metadata)
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            app.logger.exception("Agricultural AI workflow failed")
+            return jsonify({"error": "Agricultural analysis failed."}), 500
+
     return app
 
 
