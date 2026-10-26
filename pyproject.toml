@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Agricultural production and climate intelligence for Morocco"
 requires-python = ">=3.12"
 dependencies = [
+    "python-dotenv>=1.0,<2.0",
     "pandas",
     "numpy",
     "requests",
@@ -16,6 +17,7 @@ dependencies = [
     "streamlit>=1.40,<2.0",
     "plotly>=5.24,<7.0",
     "langgraph>=1.0,<2.0",
+    "langchain-core>=0.3,<2.0",
 ]
 
 [project.optional-dependencies]

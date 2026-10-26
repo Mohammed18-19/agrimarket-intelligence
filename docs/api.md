@@ -58,6 +58,27 @@ Returns saved forecast records and available model metadata.
 
 **Important:** Forecasts are model estimates, not observed production figures.
 
+### AI Advisor
+
+POST /api/ai/ask
+
+Example request:
+
+```json
+{
+  "question": "How did wheat production change, and what does the forecast say?",
+  "crop": "Wheat",
+  "location": "Agadir",
+  "conversation_id": "browser-session-id"
+}
+```
+
+`conversation_id` is optional. The dashboard supplies a session-scoped ID so LangGraph can retain conversation context in the backend's in-memory checkpointer. This memory is lost on backend restart and is not shared between multiple workers.
+
+With `GROQ_API_KEY` and the optional dependencies installed (`pip install -e ".[llm]"`), the LLM selects and calls the production, climate, and forecast tools. Without them, the API uses the deterministic specialist workflow and evidence-based fallback. Responses include `agents_used`, `evidence`, `validation`, `analysis`, and analysis-source metadata.
+
+Never send the provider key from the browser. Configure it only in the backend environment.
+
 ## Error responses
 
 Responses with errors contain an error field.

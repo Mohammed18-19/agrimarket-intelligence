@@ -14,7 +14,8 @@ AgriMarket Intelligence is a data analytics platform for exploring Moroccan crop
 - **Interactive dashboard:** Examine historical production, forecasts, and climate indicators.
 - **Statistical forecasting:** Compare naive baseline and linear-trend estimates.
 - **Climate intelligence:** Explore processed NASA POWER observations for five Moroccan locations.
-- **AI Advisor:** Ask questions about production, climate observations, and available forecasts.
+- **Tool-using AI agent:** A LangGraph loop lets a configured LLM choose among production, climate, and forecast tools, call them, and answer from their returned evidence.
+- **Deterministic fallback:** Without a hosted API key, the workflow still retrieves real project datasets and produces an evidence-based analysis.
 - **Evidence transparency:** Distinguish observed data from estimates and communicate limitations.
 - **REST API:** Serve crop, production, and forecast data through Flask.
 
@@ -28,7 +29,9 @@ AgriMarket Intelligence is a data analytics platform for exploring Moroccan crop
 | Forecasting | Naive baseline, linear trend |
 | Agricultural data | FAOSTAT |
 | Climate data | NASA POWER |
-| AI integration | Evidence-based fallback, optional Groq |
+| AI orchestration | LangGraph stateful graph and bounded tool-calling loop |
+| AI tools / model | LangChain tools, optional Groq ChatGroq |
+| Conversation state | In-memory LangGraph checkpointer, session conversation ID |
 | Testing | pytest |
 
 ## Data Sources
@@ -117,9 +120,29 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### 5. Optional AI provider
+### 5. Optional tool-calling AI provider
 
-Configure `GROQ_API_KEY` locally to use the hosted Groq integration. Never commit API keys or other secrets.
+Install the optional LLM dependencies:
+
+```bash
+pip install -e ".[llm]"
+```
+
+Export the variables in the backend shell (the `.env.example` file is a template; the application does not automatically load `.env` files):
+
+```bash
+export GROQ_API_KEY="your-key"
+export AGRIMARKET_LLM_MODEL="openai/gpt-oss-120b"
+```
+
+The model dynamically selects among three LangChain tools:
+- `get_crop_production` — observed FAOSTAT crop production and annual changes.
+- `get_climate_observations` — NASA POWER annual climate observations.
+- `get_crop_forecasts` — existing experimental forecasts and evaluation records.
+
+LangGraph bounds the tool loop and validates returned evidence before producing the API response. Never commit API keys or other secrets.
+
+When no key or provider package is available, the deterministic specialist workflow remains usable. The dashboard sends a session conversation ID so the graph can retain conversation context in memory. This memory is process-local and is lost when the backend restarts; it is not a durable database or cross-worker memory store.
 
 ## Testing
 
@@ -141,13 +164,16 @@ npm run build
 - Production data is national-level, not province-level yield data.
 - Forecast accuracy varies by crop and historical pattern.
 - Climate coverage is limited to locations in the processed dataset.
-- Hosted AI responses require provider configuration; the fallback has limited question interpretation.
-- Crop suitability, market-price analysis, and regional risk assessment remain potential extensions.
+- Tool selection and natural-language synthesis require the optional Groq provider configuration; without it, question routing uses transparent keyword rules.
+- Conversation memory is in-process only and is not shared between multiple backend workers.
+- Crop suitability, market-price analysis, and regional risk assessment are not implemented because the current datasets do not support those claims.
 
 ## Roadmap
 
-- [ ] Improve AI question classification and evidence retrieval.
-- [ ] Add automated evaluation for AI answers and unsupported questions.
+- [x] Add LangChain tools and a bounded LangGraph tool-calling loop.
+- [x] Validate tool evidence and preserve a no-key deterministic fallback.
+- [x] Pass a session conversation ID for in-memory conversation context.
+- [ ] Add automated evaluation for AI answer grounding, tool selection, and unsupported questions.
 - [ ] Strengthen chronological forecast evaluation.
 - [ ] Expand regional agricultural data using reliable sources.
 - [ ] Explore crop suitability and agricultural risk analysis.

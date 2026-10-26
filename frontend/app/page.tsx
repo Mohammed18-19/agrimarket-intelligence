@@ -127,6 +127,18 @@ function formatClimate(value: number | null | undefined, suffix = "") {
 }
 
 
+function getConversationId(): string {
+  // Browser-only call from the AI submit handler; the backend keeps bounded
+  // in-process conversation state for this session ID.
+  const key = "agrimarket-conversation-id";
+  let id = window.sessionStorage.getItem(key);
+  if (!id) {
+    id = window.crypto.randomUUID();
+    window.sessionStorage.setItem(key, id);
+  }
+  return id;
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: 'no-store' });
   const body = await response.json().catch(() => ({}));
@@ -199,6 +211,7 @@ export default function AgriMarketDashboard() {
           question: cleaned,
           crop,
           location: climateLocation || undefined,
+          conversation_id: getConversationId(),
         }),
       });
       const body = await response.json().catch(() => ({}));

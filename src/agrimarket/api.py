@@ -1,5 +1,10 @@
 """Flask REST API for agricultural production analytics."""
 
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+
 import os
 from pathlib import Path
 
@@ -309,28 +314,41 @@ def create_app(
 
         crop = payload.get("crop")
         location = payload.get("location")
+        conversation_id = payload.get("conversation_id")
 
         if crop is not None and not isinstance(crop, str):
             return jsonify({"error": "crop must be a string."}), 400
         if location is not None and not isinstance(location, str):
             return jsonify({"error": "location must be a string."}), 400
+        if conversation_id is not None and (
+            not isinstance(conversation_id, str)
+            or not conversation_id.strip()
+            or len(conversation_id) > 128
+        ):
+            return jsonify({
+                "error": "conversation_id must be a non-empty string of at most 128 characters."
+            }), 400
 
         try:
             result = ask_agricultural_question(
                 question=question,
                 crop=crop,
                 location=location,
+                conversation_id=conversation_id,
             )
-            from agrimarket.ai.analyst import summarize_evidence_with_metadata
-            evidence_for_summary = {
-                **result.get("evidence", {}),
-                "validation": result.get("validation", {}),
-            }
-            metadata = summarize_evidence_with_metadata(
-                question,
-                evidence_for_summary,
-            )
-            result.update(metadata)
+            # The tool-calling workflow already has a model-generated answer.
+            # Keep the existing evidence-based summarizer for no-key fallback.
+            if not result.get("analysis"):
+                from agrimarket.ai.analyst import summarize_evidence_with_metadata
+                evidence_for_summary = {
+                    **result.get("evidence", {}),
+                    "validation": result.get("validation", {}),
+                }
+                metadata = summarize_evidence_with_metadata(
+                    question,
+                    evidence_for_summary,
+                )
+                result.update(metadata)
             return jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
