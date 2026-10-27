@@ -2,11 +2,14 @@
 
 import { useState } from 'react';
 import DashboardSections from './components/DashboardSections';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Activity, BarChart3, Bell, BrainCircuit, CheckCircle2,
   ChevronRight, Circle, CloudSun, Database, FileText, Globe2,
   Leaf, LoaderCircle, Play, ShieldCheck, Sprout, Sun,
-  TrendingUp, Wheat, Workflow, Settings, Moon, Search
+  TrendingUp, Wheat, Workflow, Settings, Moon, Search,
+  Copy, AlertTriangle, BookOpenCheck, CheckCircle2 as CheckIcon
 } from 'lucide-react';
 
 const agents = [
@@ -41,6 +44,7 @@ export default function Home() {
   const [running, setRunning] = useState(false);
   const [events, setEvents] = useState<Record<string, any>[]>([]);
   const [answer, setAnswer] = useState('');
+  const [answerData, setAnswerData] = useState<Record<string, any> | null>(null);
   const [error, setError] = useState('');
   const [activeNav, setActiveNav] = useState('Investigation Workspace');
 
@@ -50,6 +54,7 @@ export default function Home() {
     setRunning(true);
     setEvents([]);
     setAnswer('');
+    setAnswerData(null);
     setError('');
 
     try {
@@ -121,6 +126,7 @@ export default function Home() {
         if (event.type === 'final' && event.answer) {
           receivedFinal = true;
           const result = event.answer;
+          setAnswerData(result);
           const sections = [
             typeof result.analysis === 'string' ? result.analysis : '',
             result.validation
@@ -272,8 +278,142 @@ export default function Home() {
             <div className="ready-row"><span className="ready-dot" />{running ? 'Investigation running' : 'Agent Ready'}</div>
             <section className="panel answer-panel">
               <div className="panel-heading"><h2><FileText size={19} /> Final Answer</h2><span className="status-pill">{answer ? 'Response received' : 'Awaiting run'}</span></div>
-              {answer ? <pre className="answer-text">{answer}</pre> :
-                <div className="answer-placeholder"><BrainCircuit size={29} /><strong>Your analysis will appear here</strong><p>Run an investigation to display the response returned by the backend.</p></div>}
+              {answerData ? (
+                <div className="final-report">
+                  <div className="report-banner">
+                    <div className="report-banner-icon"><Sprout size={23} /></div>
+                    <div className="report-banner-copy">
+                      <span className="report-eyebrow">AGRICULTURAL INTELLIGENCE</span>
+                      <h3>Investigation Report</h3>
+                      <p>{answerData.question || question}</p>
+                    </div>
+                    <span className="report-complete"><CheckIcon size={14} /> Received</span>
+                  </div>
+
+                  <div className="report-section">
+                    <div className="report-section-title">
+                      <span className="report-section-icon summary-icon"><FileText size={17} /></span>
+                      <h3>Executive Analysis</h3>
+                    </div>
+                    <div className="report-analysis markdown-report">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({ children }) => <h2 className="md-report-title">{children}</h2>,
+                          h2: ({ children }) => <h3 className="md-report-heading">{children}</h3>,
+                          h3: ({ children }) => <h4 className="md-report-subheading">{children}</h4>,
+                          p: ({ children }) => <p>{children}</p>,
+                          table: ({ children }) => (
+                            <div className="md-table-wrap">
+                              <table className="md-report-table">{children}</table>
+                            </div>
+                          ),
+                          thead: ({ children }) => <thead>{children}</thead>,
+                          th: ({ children }) => <th>{children}</th>,
+                          td: ({ children }) => <td>{children}</td>,
+                          blockquote: ({ children }) => (
+                            <blockquote className="md-report-callout">{children}</blockquote>
+                          ),
+                          ul: ({ children }) => <ul className="md-report-list">{children}</ul>,
+                          ol: ({ children }) => <ol className="md-report-list md-report-ordered">{children}</ol>,
+                          li: ({ children }) => <li>{children}</li>,
+                          strong: ({ children }) => <strong>{children}</strong>,
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noreferrer">{children}</a>
+                          ),
+                          hr: () => <hr className="md-report-divider" />,
+                        }}
+                      >
+                        {String(answerData.analysis || 'No analysis text was returned.')}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+
+                  <div className="report-section">
+                    <div className="report-section-title">
+                      <span className="report-section-icon evidence-icon"><Database size={17} /></span>
+                      <h3>Retrieved Evidence</h3>
+                      <span className="report-count">
+                        {Object.keys(answerData.evidence || {}).length} sources
+                      </span>
+                    </div>
+                    {Object.entries(answerData.evidence || {}).length ? (
+                      <div className="evidence-list">
+                        {Object.entries(answerData.evidence || {}).map(([key, value]: [string, any]) => {
+                          const failed = value?.status === 'error' || value?.status === 'failed';
+                          return (
+                            <details className="evidence-card" key={key}>
+                              <summary>
+                                <span className={`evidence-status ${failed ? 'evidence-status-error' : ''}`}>
+                                  {failed ? <AlertTriangle size={15} /> : <CheckIcon size={15} />}
+                                </span>
+                                <span className="evidence-name">
+                                  {key.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                                  <small>{value?.agent || 'Investigation evidence'}</small>
+                                </span>
+                                <span className="evidence-expand">View details</span>
+                              </summary>
+                              <pre className="evidence-json">{JSON.stringify(value, null, 2)}</pre>
+                            </details>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="report-muted">No evidence payload was returned for this investigation.</p>
+                    )}
+                  </div>
+
+                  <div className="report-section">
+                    <div className="report-section-title">
+                      <span className="report-section-icon validation-icon"><ShieldCheck size={17} /></span>
+                      <h3>Evidence Validation</h3>
+                    </div>
+                    <div className="validation-card">
+                      <div className="validation-heading">
+                        <ShieldCheck size={18} />
+                        <strong>
+                          {String(answerData.validation?.status || 'Validation details available')}
+                            .replace(/[_-]/g, ' ')
+                        </strong>
+                      </div>
+                      <pre className="evidence-json">
+                        {JSON.stringify(answerData.validation || { message: 'No validation details returned.' }, null, 2)}
+                      </pre>
+                      <p>Validation checks data availability and structure; it does not guarantee that every interpretation is correct.</p>
+                    </div>
+                  </div>
+
+                  {answerData.note && (
+                    <div className="report-note">
+                      <AlertTriangle size={17} />
+                      <div><strong>Interpretation note</strong><p>{answerData.note}</p></div>
+                    </div>
+                  )}
+
+                  <div className="report-actions">
+                    <button className="report-copy-button" onClick={() => {
+                      void navigator.clipboard.writeText(answer)
+                        .then(() => window.alert('Report copied to clipboard.'))
+                        .catch(() => window.alert('Copy failed. Please select and copy the report text.'));
+                    }}>
+                      <Copy size={16} /> Copy full report
+                    </button>
+                    <button className="report-export-button" onClick={() => {
+                      const blob = new Blob([JSON.stringify(answerData, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = 'agrimarket-investigation-report.json';
+                      link.click();
+                      URL.revokeObjectURL(url);
+                    }}>
+                      <BookOpenCheck size={16} /> Export JSON
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="answer-placeholder"><BrainCircuit size={29} /><strong>Your analysis will appear here</strong><p>Run an investigation to display the response returned by the backend.</p></div>
+              )}
               <div className="metric-grid">
                 <div className="metric-card growth"><Sprout size={17} /><span>Production data</span><strong>On demand</strong><small>From project datasets</small></div>
                 <div className="metric-card risk"><CloudSun size={17} /><span>Climate analysis</span><strong>On demand</strong><small>Source-dependent</small></div>
