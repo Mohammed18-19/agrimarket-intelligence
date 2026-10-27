@@ -160,3 +160,9 @@ The repository includes production and climate data workflows, crop analytics en
 
 - GitHub: [Mohammed18-19](https://github.com/Mohammed18-19)
 - Project repository: [agrimarket-intelligence](https://github.com/Mohammed18-19/agrimarket-intelligence)
+
+## Agentic Investigation Workspace
+
+![AgriMarket Intelligence agentic investigation workspace](frontend/public/screenshots/agentic-dashboard.png)
+
+*Concept preview of the LangGraph-powered investigation workflow, evidence retrieval, validation, and structured agricultural reporting.*
