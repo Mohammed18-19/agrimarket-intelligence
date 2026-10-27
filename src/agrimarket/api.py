@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 import pandas as pd
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
 from agrimarket.analytics.production import calculate_production_trends
 
@@ -300,6 +300,63 @@ def create_app(
             "years": sorted(df["year"].unique().tolist()),
             "records": json_records(df),
         })
+
+
+
+    @app.post("/api/ai/stream")
+    def ai_stream():
+        """Stream real LangGraph node and tool events as server-sent events."""
+        import json
+        from agrimarket.ai.workflow import stream_agricultural_question
+
+        payload = request.get_json(silent=True) or {}
+        question = payload.get("question")
+        if not isinstance(question, str) or not question.strip():
+            return jsonify({"error": "A non-empty question is required."}), 400
+
+        crop = payload.get("crop")
+        location = payload.get("location")
+        conversation_id = payload.get("conversation_id")
+        if crop is not None and not isinstance(crop, str):
+            return jsonify({"error": "crop must be a string."}), 400
+        if location is not None and not isinstance(location, str):
+            return jsonify({"error": "location must be a string."}), 400
+        if conversation_id is not None and (
+            not isinstance(conversation_id, str)
+            or not conversation_id.strip()
+            or len(conversation_id) > 128
+        ):
+            return jsonify({
+                "error": "conversation_id must be a non-empty string of at most 128 characters."
+            }), 400
+
+        @stream_with_context
+        def generate():
+            try:
+                for event in stream_agricultural_question(
+                    question=question,
+                    crop=crop,
+                    location=location,
+                    conversation_id=conversation_id,
+                ):
+                    yield "data: " + json.dumps(event, ensure_ascii=False, default=str) + "\n\n"
+            except ValueError as exc:
+                yield "event: error\ndata: " + json.dumps({"error": str(exc)}) + "\n\n"
+            except Exception:
+                app.logger.exception("Streaming agricultural AI workflow failed")
+                yield "event: error\ndata: " + json.dumps({
+                    "error": "The agricultural workflow failed. Check the API logs."
+                }) + "\n\n"
+
+        return Response(
+            generate(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     @app.post("/api/ai/ask")
     def ai_ask():

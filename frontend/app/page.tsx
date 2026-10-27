@@ -1,1012 +1,318 @@
 'use client';
 
-import dynamic from "next/dynamic";
-
-const GlobalGlobe = dynamic(
-  () => import("./components/GlobalGlobe"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="global-globe-stage">
-        <p style={{ color: "#9be8ae" }}>Loading Earth visualization…</p>
-      </div>
-    ),
-  },
-);
-
-import MarkdownAnalysis from '../components/MarkdownAnalysis';
-
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
+import DashboardSections from './components/DashboardSections';
 import {
-  Activity,
-  AlertCircle,
-  ArrowDownRight,
-  ArrowUpRight,
-  BarChart3,
-  CalendarDays,
-  CheckCircle2,
-  ChevronDown,
-  CloudSun,
-  Leaf,
-  RefreshCw,
-  Search,
-  Sparkles,
-  Sprout,
-  TrendingUp,
-  Wheat, Moon, Sun, Globe2} from 'lucide-react';
-import AIAdvisorInsights from "../components/AIAdvisorInsights";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+  Activity, BarChart3, Bell, BrainCircuit, CheckCircle2,
+  ChevronRight, Circle, CloudSun, Database, FileText, Globe2,
+  Leaf, LoaderCircle, Play, ShieldCheck, Sprout, Sun,
+  TrendingUp, Wheat, Workflow, Settings, Moon, Search
+} from 'lucide-react';
 
-type CropSummary = {
-  crop: string;
-  first_year: number;
-  latest_year: number;
-  latest_production: number;
-  observations: number;
-  unit: string;
-  year_over_year: {
-    previous_year_production: number | null;
-    change_in_production: number | null;
-    change_percentage: number | null;
-  };
-};
+const agents = [
+  { name: 'Supervisor', desc: 'Planning investigation strategy', icon: BrainCircuit },
+  { name: 'Data Investigation', desc: 'Querying production and climate tools', icon: Database },
+  { name: 'Analysis Specialists', desc: 'Analyzing trends and forecast reliability', icon: TrendingUp },
+  { name: 'Evidence Verification', desc: 'Checking sources and limitations', icon: ShieldCheck },
+];
 
-type HistoryRow = { Year: number; Value: number; Unit: string };
-type ForecastRow = {
-  forecast_year?: number;
-  target_year?: number;
-  Year?: number;
-  predicted_production?: number;
-  prediction?: number;
-  selected_method?: string;
-  unit?: string;
-  validation_mae?: number;
-  training_start_year?: number;
-  training_end_year?: number;
-  training_observations?: number;
-};
-type CropHistory = { crop: string; history: HistoryRow[] };
-type CropForecast = { crop: string; forecasts: ForecastRow[] };
-type CropList = { count: number; crops: string[] };
+const sources = [
+  { name: 'FAOSTAT · Wheat Production', desc: 'Morocco · Historical production data', icon: Wheat },
+  { name: 'NASA POWER · Climate Data', desc: 'Daily climate observations · 5 locations', icon: CloudSun },
+  { name: 'Forecast Evaluation', desc: 'Naive baseline vs. linear trend', icon: BarChart3 },
+];
 
-type AIAnswer = {
-  question: string;
-  agents_used: string[];
-  evidence: Record<string, unknown>;
-  validation: { status?: string; approved?: boolean; [key: string]: unknown };
-  note?: string;
-  analysis?: string;
-  analysis_source?: "groq" | "fallback" | string;
-  analysis_model?: string | null;
-  analysis_fallback_reason?: string | null;
-};
+const nav = [
+  { label: 'Investigation Workspace', icon: Workflow },
+  { label: 'Production Analytics', icon: Wheat },
+  { label: 'Climate Risk', icon: CloudSun },
+  { label: 'Forecasting', icon: TrendingUp },
+  { label: 'Crop Suitability', icon: Sprout },
+  { label: 'Global Insights', icon: Globe2 },
+  { label: 'Reports', icon: FileText },
+  { label: 'Data Sources', icon: Database },
+];
 
-
-type ClimateRecord = {
-  location: string;
-  latitude: number;
-  longitude: number;
-  year: number;
-  mean_temperature_c: number | null;
-  mean_daily_max_temperature_c: number | null;
-  mean_daily_min_temperature_c: number | null;
-  total_precipitation: number | null;
-  mean_daily_solar_radiation: number | null;
-  days_observed: number;
-};
-
-type ClimateResponse = {
-  count: number;
-  locations: string[];
-  years: number[];
-  records: ClimateRecord[];
-};
-
-type ClimateMetric =
-  | "mean_temperature_c"
-  | "total_precipitation"
-  | "mean_daily_solar_radiation";
-
-const climateMetricLabels: Record<ClimateMetric, string> = {
-  mean_temperature_c: "Mean temperature (°C)",
-  total_precipitation: "Annual precipitation (mm)",
-  mean_daily_solar_radiation: "Mean daily solar radiation",
-};
-
-function formatClimate(value: number | null | undefined, suffix = "") {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${value.toFixed(1)}${suffix}`;
-}
-
-
-function getConversationId(): string {
-  // Browser-only call from the AI submit handler; the backend keeps bounded
-  // in-process conversation state for this session ID.
-  const key = "agrimarket-conversation-id";
-  let id = window.sessionStorage.getItem(key);
-  if (!id) {
-    id = window.crypto.randomUUID();
-    window.sessionStorage.setItem(key, id);
-  }
-  return id;
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: 'no-store' });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(
-      typeof body?.error === 'string'
-        ? body.error
-        : `Request failed (${response.status})`,
-    );
-  }
-  return body as T;
-}
-
-function formatNumber(value: number | null | undefined, compact = false) {
-  if (value == null || !Number.isFinite(value)) return '—';
-  return new Intl.NumberFormat('en-US', {
-    notation: compact ? 'compact' : 'standard',
-    maximumFractionDigits: compact ? 2 : 0,
-  }).format(value);
-}
-
-function percent(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return 'N/A';
-  return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
-}
-
-function renderAnalysis(markdown: string) {
-  return <MarkdownAnalysis content={markdown} />;
-}
-
-export default function AgriMarketDashboard() {
-
-
-  const [crops, setCrops] = useState<string[]>([]);
+export default function Home() {
+  const [question, setQuestion] = useState(
+    'Analyze wheat production trends and climate risks in Morocco, and explain the reliability of the forecast.'
+  );
   const [crop, setCrop] = useState('Wheat');
-  const [search, setSearch] = useState('');
-  const [summary, setSummary] = useState<CropSummary | null>(null);
-  const [history, setHistory] = useState<HistoryRow[]>([]);
-  const [forecast, setForecast] = useState<ForecastRow | null>(null);
-  const [loadingCrops, setLoadingCrops] = useState(true);
-  const [loadingData, setLoadingData] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [events, setEvents] = useState<Record<string, any>[]>([]);
+  const [answer, setAnswer] = useState('');
+  const [error, setError] = useState('');
+  const [activeNav, setActiveNav] = useState('Investigation Workspace');
 
-  const [climateData, setClimateData] = useState<ClimateResponse | null>(null);
-  const [climateLocation, setClimateLocation] = useState("");
-  const [climateMetric, setClimateMetric] =
-    useState<ClimateMetric>("mean_temperature_c");
-  const [loadingClimate, setLoadingClimate] = useState(true);
-  const [climateError, setClimateError] = useState<string | null>(null);
+  async function runInvestigation() {
+    if (!question.trim() || running) return;
 
-  const [aiQuestion, setAiQuestion] = useState("");
-  const [aiAnswer, setAiAnswer] = useState<AIAnswer | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-
-  async function askAI(question = aiQuestion) {
-    const cleaned = question.trim();
-    if (!cleaned || aiLoading) return;
-
-    setAiLoading(true);
-    setAiError(null);
-    setAiAnswer(null);
+    setRunning(true);
+    setEvents([]);
+    setAnswer('');
+    setError('');
 
     try {
-      const response = await fetch("/api/ai/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: cleaned,
-          crop,
-          location: climateLocation || undefined,
-          conversation_id: getConversationId(),
-        }),
+      const response = await fetch('/api/ai/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, crop, location: 'Morocco' }),
       });
-      const body = await response.json().catch(() => ({}));
 
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
+        const message = await response.text().catch(() => '');
+        let detail = message;
+
+        try {
+          const parsed = JSON.parse(message);
+          detail = parsed.error ?? message;
+        } catch {}
+
         throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : `AI request failed (${response.status})`,
+          detail || `Workflow request failed (${response.status}).`
         );
       }
 
-      setAiAnswer(body as AIAnswer);
-    } catch (cause) {
-      setAiError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not complete the agricultural analysis.",
-      );
-    } finally {
-      setAiLoading(false);
-    }
-  }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let receivedFinal = false;
+      let streamError = '';
 
+      function processChunk(chunk: string) {
+        let eventType = '';
+        const data = chunk
+          .split(/\r?\n/)
+          .filter(line => {
+            if (line.startsWith('event:')) {
+              eventType = line.slice(6).trim();
+            }
+            return line.startsWith('data:');
+          })
+          .map(line => line.slice(5).trimStart())
+          .join('\n');
 
+        if (!data || data === '[DONE]') return;
 
-  useEffect(() => {
-    let cancelled = false;
+        let event: Record<string, any>;
 
-    getJson<ClimateResponse>('/api/climate')
-      .then((result) => {
-        if (cancelled) return;
-        setClimateData(result);
-        setClimateLocation((current) =>
-          current && result.locations.includes(current)
-            ? current
-            : result.locations[0] ?? '',
-        );
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setClimateError(
-            cause instanceof Error
-              ? cause.message
-              : 'Could not load climate observations.',
+        try {
+          event = JSON.parse(data);
+        } catch {
+          setEvents(previous => [
+            ...previous,
+            { type: 'message', message: data },
+          ]);
+          return;
+        }
+
+        if (eventType === 'error') event.type = 'error';
+        setEvents(previous => [...previous, event]);
+
+        if (event.type === 'error' || event.error) {
+          streamError =
+            typeof event.error === 'string'
+              ? event.error
+              : 'The agricultural workflow failed. Check the backend logs.';
+          setError(streamError);
+          return;
+        }
+
+        if (event.type === 'final' && event.answer) {
+          receivedFinal = true;
+          const result = event.answer;
+          const sections = [
+            typeof result.analysis === 'string' ? result.analysis : '',
+            result.validation
+              ? `EVIDENCE VALIDATION\n${JSON.stringify(result.validation, null, 2)}`
+              : '',
+            result.evidence
+              ? `RETRIEVED EVIDENCE\n${JSON.stringify(result.evidence, null, 2)}`
+              : '',
+            result.note ? `NOTE\n${result.note}` : '',
+          ].filter(Boolean);
+
+          setAnswer(
+            sections.join('\n\n') ||
+              'The workflow completed but returned no analysis text.'
           );
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingClimate(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    getJson<CropList>('/api/crops')
-      .then((result) => {
-        if (cancelled) return;
-        setCrops(result.crops ?? []);
-        if (result.crops?.length && !result.crops.includes(crop)) {
-          setCrop(result.crops[0]);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : 'Could not load crops.');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingCrops(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  // Crop is intentionally not a dependency: the crop list is fetched once.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loadCrop = useCallback(async () => {
-    if (!crop) return;
-    setLoadingData(true);
-    setError(null);
-    try {
-      const encoded = encodeURIComponent(crop);
-      const [summaryResult, historyResult, forecastResult] = await Promise.all([
-        getJson<CropSummary>(`/api/crops/${encoded}/summary`),
-        getJson<CropHistory>(`/api/crops/${encoded}/history`),
-        getJson<CropForecast>(`/api/crops/${encoded}/forecast`).catch(() => null),
-      ]);
-      setSummary(summaryResult);
-      setHistory(historyResult.history ?? []);
-      const forecasts = forecastResult?.forecasts ?? [];
-      setForecast(forecasts[0] ?? null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load crop analytics.');
-      setSummary(null);
-      setHistory([]);
-      setForecast(null);
-    } finally {
-      setLoadingData(false);
-    }
-  }, [crop]);
-
-  useEffect(() => {
-    void loadCrop();
-  }, [loadCrop, reloadKey]);
-
-  const chartData = useMemo(() => {
-    const points = history.map((row) => ({
-      year: row.Year,
-      observed: row.Value,
-      predicted: undefined as number | undefined,
-    }));
-    const year = forecast?.forecast_year ?? forecast?.target_year ?? forecast?.Year;
-    const prediction = forecast?.predicted_production ?? forecast?.prediction;
-    if (year != null && prediction != null) {
-      if (points.length) {
-        points[points.length - 1] = {
-          ...points[points.length - 1],
-          predicted: points[points.length - 1].observed,
-        };
       }
-      points.push({ year, observed: undefined as unknown as number, predicted: prediction });
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split(/\r?\n\r?\n/);
+        buffer = chunks.pop() ?? '';
+
+        for (const chunk of chunks) processChunk(chunk);
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) processChunk(buffer);
+
+      if (!receivedFinal && !streamError) {
+        setError(
+          'The stream ended without a final answer. Check the Flask API logs.'
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unknown workflow error');
+    } finally {
+      setRunning(false);
     }
-    return points;
-  }, [history, forecast]);
-
-  const selectedClimate = useMemo(
-    () =>
-      (climateData?.records ?? [])
-        .filter((record) => record.location === climateLocation)
-        .sort((a, b) => a.year - b.year),
-    [climateData, climateLocation],
-  );
-
-  const latestClimate = selectedClimate[selectedClimate.length - 1] ?? null;
-
-  const climateChartData = selectedClimate.map((record) => ({
-    year: record.year,
-    value: record[climateMetric],
-  }));
-
-  const filteredCrops = useMemo(
-    () => crops.filter((item) => item.toLowerCase().includes(search.toLowerCase())),
-    [crops, search],
-  );
-  const change = summary?.year_over_year.change_percentage;
-  const forecastYear = forecast?.forecast_year ?? forecast?.target_year ?? forecast?.Year;
-  const prediction = forecast?.predicted_production ?? forecast?.prediction;
-  const unit = summary?.unit ?? forecast?.unit ?? 't';
+  }
 
   return (
-    <main data-theme="dark" className="agri-app min-h-screen px-4 py-5 sm:px-6 lg:px-8">
-      <div className="agri-shell animate-enter mx-auto max-w-[1500px] space-y-6">
-        <header className="flex flex-col justify-between gap-5 agri-hero relative overflow-hidden rounded-[28px] bg-[#073d2b] p-6 text-white shadow-sm sm:p-8 lg:flex-row lg:items-center">
-          <div>
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold tracking-wide text-[#d4ead8]">
-              <Sprout className="h-4 w-4" />
-              MOROCCO · AGRICULTURAL INTELLIGENCE
-            </div>
-            <h1 className="relative z-10 text-3xl font-semibold tracking-tight sm:text-4xl">
-              AgriMarket Intelligence
-            </h1>
-            <p className="relative z-10 mt-2 max-w-2xl text-sm leading-6 text-white/75 sm:text-base">
-              Understand crop production, explore historical performance, and review transparent forecasts.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-3 py-3 sm:min-w-[280px]">
-              <Wheat className="h-4 w-4 shrink-0 text-[#b9df8b]" />
-              <div className="min-w-0 flex-1">
-                <label htmlFor="crop-select" className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-white/60">
-                  Selected crop
-                </label>
-                <select
-                  id="crop-select"
-                  value={crop}
-                  disabled={loadingCrops || crops.length === 0}
-                  onChange={(event) => setCrop(event.target.value)}
-                  className="mt-1 w-full cursor-pointer appearance-none bg-transparent text-sm font-semibold text-white outline-none"
-                >
-                  {crops.length === 0 && <option className="text-[#18271e]" value="Wheat">Loading crops…</option>}
-                  {crops.map((item) => <option className="text-[#18271e]" key={item} value={item}>{item}</option>)}
-                </select>
-              </div>
-              <ChevronDown className="h-4 w-4 shrink-0 text-white/60" />
-            </div>
-            
-            <button
-              type="button"
-              onClick={() => setReloadKey((key) => key + 1)}
-              disabled={loadingData}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#c5e5a2] px-4 py-3 text-sm font-semibold text-[#173d2b] transition hover:bg-[#d7efbc] disabled:opacity-60"
-            >
-              <RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} />
-              Refresh
+    <main className="agent-os">
+      <aside className="agent-sidebar">
+        <div className="brand">
+          <div className="brand-icon"><Leaf size={28} fill="currentColor" /></div>
+          <div><strong>AgriMarket AI</strong><span>AGENTIC AGRICULTURAL INTELLIGENCE</span></div>
+        </div>
+
+        <div className="nav-list">
+          {nav.map(({ label, icon: Icon }) => (
+            <button key={label} onClick={() => setActiveNav(label)}
+              className={`nav-item ${activeNav === label ? 'selected' : ''}`}>
+              <Icon size={18} /><span>{label}</span>
+              {label === 'Reports' && <i className="nav-dot" />}
             </button>
+          ))}
+        </div>
+
+        <div className="sidebar-bottom">
+          <div className="powered-card">
+            <div className="powered-icon"><Workflow size={22} /></div>
+            <div><strong>Powered by LangGraph</strong><p>Multi-step research · Real data · Evidence-based answers</p></div>
           </div>
+          <div className="profile">
+            <div className="avatar">M</div>
+            <div><strong>Mohammed Ain Tomar</strong><span>Student · AI Engineer</span></div>
+            <Settings size={18} />
+          </div>
+        </div>
+      </aside>
+
+      <section className="agent-main">
+        <header className="topbar">
+          <Leaf size={19} fill="currentColor" />
+          <div className="topbar-right"><Sun size={19} /><Bell size={19} /><div className="avatar small">M</div></div>
         </header>
 
-        <nav aria-label="Dashboard sections" className="flex flex-wrap gap-2 py-1 text-sm">
-          {[
-            ["Overview", "#overview"],
-            ["Crop explorer", "#crop-explorer"],
-            ["Climate", "#climate"],
-            ["AI advisor", "#ai-advisor"],
-            ["Data & methods", "#data-methods"],
-          ].map(([label, href]) => (
-            <a key={href} href={href} className="rounded-full border border-[#e1e7dc] bg-white px-4 py-2 font-medium text-[#405447] transition hover:border-[#8ab68d] hover:bg-[#edf5e8]">
-              {label}
-            </a>
-          ))}
-        </nav>
+        {activeNav === 'Investigation Workspace' ? (
+        <div className="workspace">
+          <section className="center-column">
+            <div className="eyebrow"><SparkleIcon /> NEW INVESTIGATION</div>
+            <h1>What should we investigate today?</h1>
+            <p className="intro">Ask a question. The agent supervisor will plan the investigation, invoke relevant tools, and assemble an evidence-backed answer.</p>
 
-
-
-        <section id="global-overview" className="global-overview-grid">
-          <article className="global-intro-panel">
-            <div className="global-eyebrow">
-              <Globe2 className="h-4 w-4" />
-              AGRICULTURE INTELLIGENCE PLATFORM
-            </div>
-            <h2 className="global-title">
-              Agriculture,<br />
-              in a new perspective.
-            </h2>
-            <p className="global-description">
-              Explore the Earth while analyzing verified Moroccan crop production
-              and climate observations.
-            </p>
-            <div className="global-data-status">
-              <span className="global-live-dot" />
-              <span>DATA CONNECTION</span>
-              <strong>{loadingData || loadingClimate ? "SYNCING" : error || climateError ? "CHECK DATA" : "CONNECTED"}</strong>
-            </div>
-          </article>
-
-          <div className="global-globe-column">
-            <GlobalGlobe />
-          </div>
-
-          <aside className="global-insights-panel">
-            <div className="global-panel-heading">
-              <span className="global-panel-icon"><Sprout className="h-4 w-4" /></span>
-              <div>
-                <p className="global-panel-kicker">SELECTED CROP</p>
-                <h3>{crop}</h3>
-              </div>
-            </div>
-
-            <div className="global-stat">
-              <span>Latest production</span>
-              <strong>{loadingData ? "Loading…" : formatNumber(summary?.latest_production, true)}</strong>
-              <small>{summary?.unit ?? "tonnes"} · {summary?.latest_year ?? "latest available year"}</small>
-            </div>
-
-            <div className="global-stat">
-              <span>Annual change</span>
-              <strong>{loadingData ? "Loading…" : percent(change)}</strong>
-              <small>Compared with the previous year</small>
-            </div>
-
-            <div className="global-stat">
-              <span>Forecast</span>
-              <strong>{loadingData ? "Loading…" : formatNumber(prediction, true)}</strong>
-              <small>{forecastYear ? `Model estimate · ${forecastYear}` : "No forecast available"}</small>
-            </div>
-
-            <div className="global-location-note">
-              <Globe2 className="h-4 w-4 shrink-0" />
-              <p>
-                <strong>Geographic scope</strong>
-                <span>Morocco · FAOSTAT production data</span>
-                <span>{climateLocation ? `Climate station: ${climateLocation}` : "NASA POWER climate observations"}</span>
-              </p>
-            </div>
-          </aside>
-        </section>
-
-        {error && (
-          <div role="alert" className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-            <div className="flex-1">
-              <p className="font-semibold">We couldn’t load the crop data</p>
-              <p className="mt-1">{error}. Check that the Flask API is running on port 5000.</p>
-              <button onClick={() => setReloadKey((key) => key + 1)} className="mt-3 inline-flex items-center gap-2 font-semibold underline underline-offset-4">
-                <RefreshCw className="h-3.5 w-3.5" /> Try again
-              </button>
-            </div>
-          </div>
-        )}
-
-        <section id="overview" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            label="Latest production"
-            value={loadingData ? '…' : formatNumber(summary?.latest_production, true)}
-            detail={`${summary?.unit ?? 'tonnes'} · ${summary?.latest_year ?? 'latest year'}`}
-            icon={<Sprout className="h-5 w-5" />}
-            tone="green"
-          />
-          <MetricCard
-            label="Year-over-year change"
-            value={loadingData ? '…' : percent(change)}
-            detail="Compared with previous calendar year"
-            icon={change != null && change < 0 ? <ArrowDownRight className="h-5 w-5" /> : <ArrowUpRight className="h-5 w-5" />}
-            tone={change != null && change < 0 ? 'rose' : 'green'}
-          />
-          <MetricCard
-            label="Historical observations"
-            value={loadingData ? '…' : formatNumber(summary?.observations)}
-            detail={summary ? `${summary.first_year}–${summary.latest_year} · annual records` : 'Annual records'}
-            icon={<CalendarDays className="h-5 w-5" />}
-            tone="blue"
-          />
-          <MetricCard
-            label="Forecast"
-            value={loadingData ? '…' : formatNumber(prediction, true)}
-            detail={forecastYear ? `${unit} · model estimate for ${forecastYear}` : 'No forecast available'}
-            icon={<TrendingUp className="h-5 w-5" />}
-            tone="violet"
-          />
-        </section>
-
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]">
-          <article className="min-w-0 rounded-[26px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-6">
-            <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">Production analytics</p>
-                <h2 className="mt-2 text-xl font-semibold tracking-tight">Production trajectory</h2>
-                <p className="mt-1 text-sm text-[#778178]">Annual observed output and available model forecast</p>
-              </div>
-              <div className="flex items-center gap-4 rounded-full bg-[#f6f7f2] px-3 py-2 text-xs text-[#5d6b60]">
-                <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-[#2e7950]" />Observed</span>
-                <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-[#9274d5]" />Forecast</span>
-              </div>
-            </div>
-            <div className="h-[300px] w-full">
-              {loadingData ? (
-                <div className="flex h-full items-center justify-center text-sm text-[#849087]">Loading production history…</div>
-              ) : chartData.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-[#849087]">
-                  <BarChart3 className="h-8 w-8" /> No historical production data available.
+            <div className="command-card">
+              <textarea value={question} onChange={e => setQuestion(e.target.value)}
+                aria-label="Investigation question" placeholder="Ask about agricultural production, climate risks, or forecast reliability..." />
+              <div className="command-bottom">
+                <div className="selectors">
+                  <label><Wheat size={14} /><select value={crop} onChange={e => setCrop(e.target.value)}>
+                    {['Wheat', 'Barley', 'Maize', 'Tomatoes', 'Potatoes', 'Olives', 'Citrus'].map(c => <option key={c}>{c}</option>)}
+                  </select></label>
+                  <span className="selector-pill"><Globe2 size={14} /> Region: Morocco</span>
                 </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-                    <CartesianGrid stroke="#edf0e9" strokeDasharray="4 5" vertical={false} />
-                    <XAxis dataKey="year" tickLine={false} axisLine={false} tick={{ fill: '#849087', fontSize: 12 }} />
-                    <YAxis tickLine={false} axisLine={false} tick={{ fill: '#849087', fontSize: 12 }} tickFormatter={(value: number) => formatNumber(value, true)} width={56} />
-                    <Tooltip
-                      contentStyle={{ borderRadius: 14, border: '1px solid #e5e9df', boxShadow: '0 8px 24px rgba(26,48,32,.08)' }}
-                      formatter={(value) => [formatNumber(Number(value)), unit]}
-                      labelFormatter={(label) => `Year ${label}`}
-                    />
-                    <Line type="monotone" dataKey="observed" name="Observed" stroke="#2e7950" strokeWidth={3} dot={{ r: 3, fill: '#2e7950', strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls />
-                    <Line type="monotone" dataKey="predicted" name="Forecast" stroke="#9274d5" strokeWidth={3} strokeDasharray="7 5" dot={{ r: 5, fill: '#9274d5', strokeWidth: 0 }} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-            <div className="mt-4 flex items-center gap-2 rounded-xl bg-[#f6f7f2] px-4 py-3 text-xs leading-5 text-[#667267]">
-              <Activity className="h-4 w-4 shrink-0 text-[#2e7950]" />
-              Forecasts are estimates, not observed production. Review validation error before interpreting predictions.
-            </div>
-          </article>
-
-          <article className="rounded-[26px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f0eafb] text-[#8062c5]"><TrendingUp className="h-5 w-5" /></div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">Model transparency</p>
-                <h2 className="mt-1 text-lg font-semibold">Forecast details</h2>
-              </div>
-            </div>
-            {loadingData ? (
-              <div className="mt-8 text-sm text-[#849087]">Evaluating selected crop…</div>
-            ) : forecast ? (
-              <>
-                <div className="mt-6 rounded-2xl bg-[#f7f4fc] p-4">
-                  <p className="text-xs font-medium text-[#7965a4]">Predicted production · {forecastYear ?? 'future year'}</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight text-[#4e3b7b]">{formatNumber(prediction, true)} <span className="text-sm font-medium">{unit}</span></p>
-                  <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#66518e]">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Method: {forecast.selected_method ?? 'Not specified'}
-                  </div>
-                </div>
-                <div className="mt-5 space-y-0">
-                  <DetailRow label="Training period" value={forecast.training_start_year != null && forecast.training_end_year != null ? `${forecast.training_start_year}–${forecast.training_end_year}` : 'Not provided'} />
-                  <DetailRow label="Training observations" value={formatNumber(forecast.training_observations)} />
-                  <DetailRow label="Validation MAE" value={forecast.validation_mae == null ? 'Not available' : `${formatNumber(forecast.validation_mae)} ${unit}`} />
-                  <DetailRow label="Latest actual year" value={String(summary?.latest_year ?? '—')} />
-                </div>
-                {forecast.validation_mae != null && (
-                  <div className="mt-5 rounded-xl border border-[#f0dfb7] bg-[#fff9e9] p-3 text-xs leading-5 text-[#806b3d]">
-                    Validation MAE measures average absolute prediction error on the validation period. It is not a guarantee of future accuracy.
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="mt-6 rounded-2xl bg-[#f6f7f2] p-5">
-                <p className="font-medium text-[#465348]">No forecast available for this crop.</p>
-                <p className="mt-1 text-sm leading-5 text-[#778178]">Historical production remains available. Choose another crop to inspect its forecast.</p>
-              </div>
-            )}
-          </article>
-        </section>
-
-        <section id="climate" className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-          <article className="min-w-0 rounded-[26px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-6">
-            <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">Historical records</p>
-                <h2 className="mt-2 text-xl font-semibold">Annual production</h2>
-                <p className="mt-1 text-sm text-[#778178]">Official cleaned FAOSTAT series for the selected crop</p>
-              </div>
-              <span className="inline-flex w-fit items-center gap-2 rounded-full bg-[#edf5e8] px-3 py-1.5 text-xs font-semibold text-[#356947]">
-                <CheckCircle2 className="h-3.5 w-3.5" /> {history.length} records
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[420px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-[#e9ede5] text-xs uppercase tracking-[0.1em] text-[#899289]">
-                    <th className="px-3 py-3 font-semibold">Year</th>
-                    <th className="px-3 py-3 text-right font-semibold">Production</th>
-                    <th className="px-3 py-3 text-right font-semibold">Unit</th>
-                    <th className="px-3 py-3 text-right font-semibold">Record</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...history].sort((a, b) => b.Year - a.Year).map((row) => (
-                    <tr key={row.Year} className="border-b border-[#f0f2ed] last:border-0 hover:bg-[#fafbf8]">
-                      <td className="px-3 py-3.5 font-semibold text-[#344538]">{row.Year}</td>
-                      <td className="px-3 py-3.5 text-right tabular-nums text-[#344538]">{formatNumber(row.Value)}</td>
-                      <td className="px-3 py-3.5 text-right text-[#778178]">{row.Unit}</td>
-                      <td className="px-3 py-3.5 text-right"><span className="rounded-full bg-[#edf5e8] px-2.5 py-1 text-[11px] font-semibold text-[#356947]">Observed</span></td>
-                    </tr>
-                  ))}
-                  {!loadingData && history.length === 0 && <tr><td colSpan={4} className="px-3 py-8 text-center text-[#849087]">No records found.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </article>
-
-          <article className="min-w-0 rounded-[26px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eaf4e4] text-[#36724b]">
-                  <CloudSun className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">Climate intelligence</p>
-                  <h2 className="mt-1 text-lg font-semibold">Climate observations</h2>
-                </div>
-              </div>
-              <select
-                aria-label="Climate location"
-                value={climateLocation}
-                disabled={loadingClimate || !climateData?.locations.length}
-                onChange={(event) => setClimateLocation(event.target.value)}
-                className="max-w-full rounded-xl border border-[#e1e7dc] bg-[#fafbf8] px-3 py-2 text-sm font-medium text-[#344538] outline-none focus:border-[#8ab68d]"
-              >
-                {(climateData?.locations ?? []).map((location) => (
-                  <option key={location} value={location}>{location}</option>
-                ))}
-              </select>
-            </div>
-
-            {loadingClimate ? (
-              <div className="flex min-h-40 items-center justify-center text-sm text-[#849087]">
-                Loading climate observations…
-              </div>
-            ) : climateError ? (
-              <div role="alert" className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-                <p className="font-semibold">Climate data unavailable</p>
-                <p className="mt-1">{climateError}</p>
-                <button type="button" onClick={() => window.location.reload()} className="mt-2 font-semibold underline underline-offset-4">
-                  Retry
+                <button className="run-button" onClick={runInvestigation} disabled={running}>
+                  {running ? <LoaderCircle size={16} className="spin" /> : <Play size={15} fill="currentColor" />}
+                  {running ? 'Investigating…' : 'Run Investigation'}
                 </button>
               </div>
-            ) : !latestClimate ? (
-              <p className="mt-5 text-sm text-[#778178]">No climate observations are available for this location.</p>
-            ) : (
-              <>
-                <p className="mt-4 text-sm leading-6 text-[#68756b]">
-                  Annual NASA POWER observations for {climateLocation}. Latest available year: {latestClimate.year}.
-                </p>
-
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl bg-[#f3f7ef] p-4">
-                    <p className="text-xs text-[#718074]">Mean temperature</p>
-                    <p className="mt-2 text-2xl font-semibold text-[#285d3a]">{formatClimate(latestClimate.mean_temperature_c, " °C")}</p>
-                    <p className="mt-1 text-xs text-[#899289]">Annual mean · {latestClimate.year}</p>
-                  </div>
-                  <div className="rounded-2xl bg-[#f3f7ef] p-4">
-                    <p className="text-xs text-[#718074]">Precipitation</p>
-                    <p className="mt-2 text-2xl font-semibold text-[#285d3a]">{formatClimate(latestClimate.total_precipitation, " mm")}</p>
-                    <p className="mt-1 text-xs text-[#899289]">Annual total · {latestClimate.year}</p>
-                  </div>
-                  <div className="rounded-2xl border border-[#edf0e9] p-4">
-                    <p className="text-xs text-[#718074]">Mean daily maximum</p>
-                    <p className="mt-2 text-xl font-semibold text-[#344538]">{formatClimate(latestClimate.mean_daily_max_temperature_c, " °C")}</p>
-                  </div>
-                  <div className="rounded-2xl border border-[#edf0e9] p-4">
-                    <p className="text-xs text-[#718074]">Mean daily minimum</p>
-                    <p className="mt-2 text-xl font-semibold text-[#344538]">{formatClimate(latestClimate.mean_daily_min_temperature_c, " °C")}</p>
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-[#344538]">Historical climate trend</h3>
-                      <p className="mt-1 text-xs text-[#899289]">{selectedClimate[0]?.year}–{latestClimate.year}</p>
-                    </div>
-                    <select
-                      aria-label="Climate chart metric"
-                      value={climateMetric}
-                      onChange={(event) => setClimateMetric(event.target.value as ClimateMetric)}
-                      className="max-w-full rounded-xl border border-[#e1e7dc] bg-[#fafbf8] px-3 py-2 text-xs font-medium text-[#344538] outline-none focus:border-[#8ab68d]"
-                    >
-                      <option value="mean_temperature_c">Mean temperature</option>
-                      <option value="total_precipitation">Precipitation</option>
-                      <option value="mean_daily_solar_radiation">Solar radiation</option>
-                    </select>
-                  </div>
-
-                  <div className="mt-4 h-[230px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={climateChartData} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-                        <CartesianGrid stroke="#edf0e9" strokeDasharray="4 5" vertical={false} />
-                        <XAxis dataKey="year" tickLine={false} axisLine={false} tick={{ fill: '#849087', fontSize: 11 }} />
-                        <YAxis width={48} tickLine={false} axisLine={false} tick={{ fill: '#849087', fontSize: 11 }} />
-                        <Tooltip
-                          labelFormatter={(label) => `Year: ${label}`}
-                          formatter={(value) => [value == null ? '—' : Number(value).toFixed(2), climateMetricLabels[climateMetric]]}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="value"
-                          name={climateMetricLabels[climateMetric]}
-                          stroke="#36724b"
-                          strokeWidth={2.5}
-                          dot={{ r: 3, fill: '#36724b' }}
-                          activeDot={{ r: 5 }}
-                          connectNulls={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="mt-3 rounded-xl bg-[#fafbf8] p-3 text-xs leading-5 text-[#778178]">
-                  {latestClimate.days_observed} days observed in {latestClimate.year}. Solar radiation is displayed in the processed dataset's original units. Climate and crop production are not assumed to have a causal relationship.
-                </div>
-              </>
-            )}
-          </article>
-        </section>
-
-        <section id="crop-explorer" className="rounded-[26px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-6">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">Explore the dataset</p>
-              <h2 className="mt-2 text-xl font-semibold">Crop explorer</h2>
-              <p className="mt-1 text-sm text-[#778178]">Search across all {crops.length || '…'} crops available in the production dataset.</p>
             </div>
-            <div className="relative w-full sm:max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#899289]" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search crops…" className="w-full rounded-xl border border-[#e1e7dc] bg-[#fafbf8] py-2.5 pl-9 pr-3 text-sm outline-none transition placeholder:text-[#9aa39a] focus:border-[#8ab68d] focus:ring-2 focus:ring-[#dcebd6]" />
-            </div>
-          </div>
-          <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {filteredCrops.slice(0, 16).map((item) => (
-              <button key={item} onClick={() => { setCrop(item); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className={`flex min-w-0 items-center gap-3 rounded-xl border p-3 text-left transition ${item === crop ? 'border-[#9ec39a] bg-[#edf5e8]' : 'border-[#edf0e9] bg-white hover:border-[#cbdcc5] hover:bg-[#fafbf8]'}`}>
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${item === crop ? 'bg-[#d7e9ce] text-[#2c6b43]' : 'bg-[#f2f4ef] text-[#6e7b70]'}`}><Leaf className="h-4 w-4" /></span>
-                <span className={`truncate text-sm font-medium ${item === crop ? 'text-[#285d3a]' : 'text-[#47564a]'}`}>{item}</span>
-              </button>
-            ))}
-            {filteredCrops.length === 0 && <p className="col-span-full py-5 text-center text-sm text-[#849087]">No crops match that search.</p>}
-          </div>
-          {filteredCrops.length > 16 && <p className="mt-3 text-xs text-[#899289]">Showing 16 matches. Use the search field to narrow the list; the selector above contains all crops.</p>}
-        </section>
 
-
-        <section id="ai-advisor" className="scroll-mt-6 rounded-[26px] border border-[#dfe8dc] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)] sm:p-7">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">LangGraph · Evidence-based analysis</p>
-              <div className="mt-3 flex items-center gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#55c785]/40 bg-gradient-to-br from-[#16452f] to-[#0d241a] text-[#c5f08a] shadow-[0_0_24px_rgba(85,199,133,0.16)]">
-                  <Sparkles className="h-6 w-6" aria-hidden="true" />
-                </span>
-                <div>
-                  <h2 className="text-2xl font-semibold tracking-tight text-[#e5f0e8]">Agricultural AI Advisor</h2>
-                  <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#55c785]">Evidence-based crop intelligence</p>
-                </div>
+            <section className="panel execution-panel">
+              <div className="panel-heading">
+                <h2><Workflow size={19} /> Agent Execution</h2>
+                <span className={`status-pill ${running ? 'running' : ''}`}><i />{running ? 'Running' : events.length ? 'Finished' : 'Ready'}</span>
+                <span className="live-label"><Activity size={14} /> Live · LangGraph</span>
               </div>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#778178]">
-                Ask about Moroccan crop production, climate observations, or available forecasts.
-                Answers are based on this project's datasets and may be limited by the evidence available.
-              </p>
-            </div>
-            <span className="rounded-full bg-[#edf5e8] px-3 py-1.5 text-xs font-semibold text-[#356947]">
-              Current crop: {crop}
-            </span>
-          </div>
-
-          <form className="mt-6" onSubmit={(event) => { event.preventDefault(); void askAI(); }}>
-            <label htmlFor="ai-question" className="mb-2 block text-sm font-semibold text-[#344538]">
-              What would you like to investigate?
-            </label>
-            <textarea
-              id="ai-question"
-              value={aiQuestion}
-              onChange={(event) => setAiQuestion(event.target.value)}
-              maxLength={1000}
-              rows={3}
-              placeholder={`Example: Summarize the production trend for ${crop} and explain what the available data cannot tell us.`}
-              className="w-full resize-y rounded-2xl border border-[#dfe6da] bg-[#fafbf8] p-4 text-sm leading-6 outline-none transition focus:border-[#8ab68d] focus:ring-2 focus:ring-[#dcebd6]"
-            />
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-[#899289]">Uses the selected crop and available local datasets. No paid model key is required for the evidence-based fallback.</p>
-              <button
-                type="submit"
-                disabled={aiLoading || !aiQuestion.trim()}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#245b3a] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#19482d] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {aiLoading ? "Analyzing evidence…" : "Analyze question"}
-                {!aiLoading && <span aria-hidden="true">→</span>}
-              </button>
-            </div>
-          </form>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {[
-              `What does the production history show for ${crop}?`,
-              `What climate observations are available for ${climateLocation || "Morocco"}?`,
-              `Explain the limitations of the ${crop} forecast.`,
-            ].map((suggestion) => (
-              <button
-                key={suggestion}
-                type="button"
-                disabled={aiLoading}
-                onClick={() => { setAiQuestion(suggestion); void askAI(suggestion); }}
-                className="rounded-full border border-[#e5e9df] px-3 py-2 text-left text-xs text-[#58675b] transition hover:bg-[#f3f7ef] disabled:opacity-50"
-              >
-                {suggestion}
-              </button>
-            ))}
-          </div>
-
-          {aiError && (
-            <div role="alert" className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-              <p className="font-semibold">Analysis could not be completed</p>
-              <p className="mt-1">{aiError}</p>
-              <p className="mt-2 text-xs">Check that the Flask API is running and inspect its terminal for errors.</p>
-            </div>
-          )}
-
-          {aiLoading && (
-            <div role="status" className="mt-5 rounded-xl bg-[#f6f7f2] p-5 text-sm text-[#667267]">
-              The specialist workflow is retrieving and validating evidence…
-            </div>
-          )}
-
-          {aiAnswer && (
-            <article className="mt-6 rounded-2xl border border-[#e5e9df] bg-[#fafbf8] p-5 sm:p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-[#253b2b]">Analysis</h3>
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-[#58675b]">
-                  Evidence status: {aiAnswer.validation?.status ?? "not specified"}
-                </span>
+              <div className="agent-timeline">
+                {agents.map(({ name, desc, icon: Icon }, i) => {
+                  const hasEvent = events.length > 0;
+                  const state = !hasEvent ? 'Waiting for run' :
+                    (i === 0 ? 'Event received' : 'Awaiting event');
+                  return <div className="agent-step" key={name}>
+                    <div className={`timeline-icon tone-${i}`}><Icon size={23} /></div>
+                    <div className="step-copy"><strong>{i + 1}. {name}</strong><span>{desc}</span></div>
+                    <span className={`step-status ${running && i === 1 ? 'blue' : ''}`}>
+                      {running && i === 1 ? <LoaderCircle size={12} className="spin" /> :
+                        hasEvent && i === 0 ? <CheckCircle2 size={13} /> : <Circle size={12} />}
+                      {hasEvent && i === 0 ? 'Event received' : state}
+                    </span>
+                  </div>;
+                })}
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                  aiAnswer.analysis_source === "groq"
-                    ? "bg-[#e6f2e5] text-[#285d37]"
-                    : "bg-[#fff1d6] text-[#855b17]"
-                }`}>
-                  {aiAnswer.analysis_source === "groq" ? "Generated by Groq" : "Local evidence-based fallback"}
-                </span>
-                {aiAnswer.analysis_source === "groq" && aiAnswer.analysis_model && (
-                  <span className="text-xs text-[#778178]">{aiAnswer.analysis_model}</span>
-                )}
-              </div>
-              {renderAnalysis(aiAnswer.analysis || "The workflow returned evidence but no analysis text.")}
-              <AIAdvisorInsights answer={aiAnswer} />
-              {aiAnswer.analysis_fallback_reason && (
-                <p className="mt-3 text-xs leading-5 text-[#778178]">
-                  {aiAnswer.analysis_fallback_reason}
-                </p>
-              )}
-              {aiAnswer.agents_used?.length > 0 && (
-                <div className="mt-5 border-t border-[#e5e9df] pt-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#718074]">Specialists used</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {aiAnswer.agents_used.map((agent) => (
-                      <span key={agent} className="rounded-full bg-[#edf5e8] px-3 py-1.5 text-xs font-medium capitalize text-[#356947]">
-                        {agent}
-                      </span>
-                    ))}
-                  </div>
+              <p className="disclaimer">Stage labels describe the workflow design. Only events returned by the server are evidence that a stage executed.</p>
+            </section>
+
+            <section className="panel tool-panel">
+              <div className="panel-heading"><h2><Activity size={18} /> Live Tool Calls</h2><span className="count-pill">{events.length} events</span></div>
+              {events.length === 0 ? (
+                <div className="empty-tools"><Database size={20} /><span>Tool calls and workflow events will appear here when an investigation runs.</span></div>
+              ) : (
+                <div className="event-list">
+                  {events.map((event, i) => <div className="event-row" key={i}>
+                    <i className="event-dot" /><div className="event-copy"><strong>{String(event.node ?? event.name ?? event.type ?? event.event ?? 'Workflow event')}</strong>
+                    <span>{String(event.message ?? event.tool ?? event.status ?? JSON.stringify(event))}</span></div>
+                    <span className="event-time">{new Date().toLocaleTimeString()}</span>
+                  </div>)}
                 </div>
               )}
-              {aiAnswer.note && <p className="mt-4 text-xs leading-5 text-[#778178]">{aiAnswer.note}</p>}
-              <details className="mt-4 border-t border-[#e5e9df] pt-4">
-                <summary className="cursor-pointer text-sm font-semibold text-[#465348]">Inspect retrieved evidence</summary>
-                <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white p-4 text-xs leading-5 text-[#58675b]">
-                  {JSON.stringify({ evidence: aiAnswer.evidence, validation: aiAnswer.validation }, null, 2)}
-                </pre>
-              </details>
-            </article>
-          )}
-        </section>
+              {error && <div className="error-box">{error}</div>}
+            </section>
+          </section>
 
-        <section id="data-methods" className="scroll-mt-6 rounded-[26px] border border-[#e5e9df] bg-white p-5 sm:p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#718074]">Transparency</p>
-          <h2 className="mt-2 text-xl font-semibold">Data sources & limitations</h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <div className="rounded-xl bg-[#f6f7f2] p-4">
-              <h3 className="font-semibold text-[#344538]">FAOSTAT</h3>
-              <p className="mt-2 text-sm leading-6 text-[#778178]">Cleaned annual crop-production records. Historical production is observed data, not a forecast.</p>
-            </div>
-            <div className="rounded-xl bg-[#f6f7f2] p-4">
-              <h3 className="font-semibold text-[#344538]">NASA POWER</h3>
-              <p className="mt-2 text-sm leading-6 text-[#778178]">Processed annual climate indicators for the locations represented in the dataset.</p>
-            </div>
-            <div className="rounded-xl bg-[#fff9e9] p-4">
-              <h3 className="font-semibold text-[#806b3d]">Forecast limitations</h3>
-              <p className="mt-2 text-sm leading-6 text-[#806b3d]">Forecasts are experimental statistical estimates. They do not establish climate causation or guarantee future outcomes.</p>
-            </div>
-          </div>
-        </section>
+          <aside className="right-column">
+            <div className="ready-row"><span className="ready-dot" />{running ? 'Investigation running' : 'Agent Ready'}</div>
+            <section className="panel answer-panel">
+              <div className="panel-heading"><h2><FileText size={19} /> Final Answer</h2><span className="status-pill">{answer ? 'Response received' : 'Awaiting run'}</span></div>
+              {answer ? <pre className="answer-text">{answer}</pre> :
+                <div className="answer-placeholder"><BrainCircuit size={29} /><strong>Your analysis will appear here</strong><p>Run an investigation to display the response returned by the backend.</p></div>}
+              <div className="metric-grid">
+                <div className="metric-card growth"><Sprout size={17} /><span>Production data</span><strong>On demand</strong><small>From project datasets</small></div>
+                <div className="metric-card risk"><CloudSun size={17} /><span>Climate analysis</span><strong>On demand</strong><small>Source-dependent</small></div>
+                <div className="metric-card confidence"><ShieldCheck size={17} /><span>Evidence checks</span><strong>Required</strong><small>Report limitations</small></div>
+              </div>
+            </section>
 
-        <footer className="flex flex-col justify-between gap-2 px-1 pb-3 text-xs text-[#899289] sm:flex-row">
-          <span className="inline-flex items-center gap-2"><Leaf className="h-3.5 w-3.5 text-[#4c8a5d]" /> AgriMarket Intelligence · Morocco</span>
-          <span>Production source: FAOSTAT · Climate source: NASA POWER · Forecasts are model estimates</span>
-        </footer>
-      </div>
+            <section className="viz-section">
+              <h2><BarChart3 size={18} /> Key Visualizations</h2>
+              <div className="viz-grid">
+                <div className="panel viz-card"><strong>{crop} Production</strong><span>Historical dataset</span>
+                  <div className="mini-chart"><svg viewBox="0 0 240 100" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#25d895" stopOpacity=".35"/><stop offset="100%" stopColor="#25d895" stopOpacity="0"/></linearGradient></defs><path d="M0,78 L25,67 L50,70 L75,57 L100,60 L125,44 L150,50 L175,30 L200,35 L240,12 L240,100 L0,100Z" fill="url(#area)"/><path d="M0,78 L25,67 L50,70 L75,57 L100,60 L125,44 L150,50 L175,30 L200,35 L240,12" fill="none" stroke="#35e6a0" strokeWidth="2.5"/></svg></div>
+                  <div className="chart-foot"><span>Historical</span><span>Latest</span></div>
+                </div>
+                <div className="panel viz-card"><strong>Climate Indicators</strong><span>Annual comparison</span>
+                  <div className="bar-chart">{[28,38,32,51,44,64,56,74,66,88].map((n,i)=><i key={i} style={{height:`${n}%`}} />)}</div>
+                  <div className="chart-foot"><span>Earlier</span><span>Recent</span></div>
+                </div>
+              </div>
+              <p className="chart-note">Illustrative chart styling. Connect verified API series before treating chart values as results.</p>
+            </section>
+
+            <section className="panel sources-panel">
+              <div className="panel-heading"><h2><ShieldCheck size={18} /> Evidence &amp; Sources</h2><span className="source-count">Project sources</span></div>
+              {sources.map(({name,desc,icon:Icon})=><div className="source-row" key={name}>
+                <div className="source-icon"><Icon size={18}/></div><div className="source-copy"><strong>{name}</strong><span>{desc}</span></div><span className="source-mark"><Database size={12}/> Available</span>
+              </div>)}
+              <p className="chart-note">Source availability does not mean a source was used in the current answer. Confirm citations from actual workflow output.</p>
+            </section>
+          </aside>
+        </div>
+        ) : (
+          <DashboardSections section={activeNav} />
+        )}
+      </section>
     </main>
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  icon,
-  tone,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  icon: React.ReactNode;
-  tone: 'green' | 'rose' | 'blue' | 'violet';
-}) {
-  const tones = {
-    green: 'bg-[#eaf4e4] text-[#36724b]',
-    rose: 'bg-[#fbeceb] text-[#b34f49]',
-    blue: 'bg-[#e9f2fb] text-[#4479a8]',
-    violet: 'bg-[#f0eafb] text-[#8062c5]',
-  };
-  return (
-    <article className="rounded-[24px] border border-[#e5e9df] bg-white p-5 shadow-[0_5px_24px_rgba(26,48,32,0.035)]">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-sm font-medium text-[#748075]">{label}</p>
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${tones[tone]}`}>{icon}</span>
-      </div>
-      <p className="mt-5 text-3xl font-semibold tracking-tight text-[#1b3022]">{value}</p>
-      <p className="mt-2 min-h-5 text-xs leading-5 text-[#899289]">{detail}</p>
-    </article>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-[#edf0e9] py-3 last:border-0">
-      <span className="text-sm text-[#778178]">{label}</span>
-      <span className="text-right text-sm font-semibold text-[#344538]">{value}</span>
-    </div>
-  );
-}
-
-function ClimateRow({ icon, title, detail }: { icon: React.ReactNode; title: string; detail: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl bg-[#f7f8f4] p-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#5c8060] shadow-sm">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-[#465348]">{title}</p>
-        <p className="mt-0.5 text-xs text-[#899289]">{detail}</p>
-      </div>
-    </div>
-  );
+function SparkleIcon() {
+  return <Sprout size={14} />;
 }

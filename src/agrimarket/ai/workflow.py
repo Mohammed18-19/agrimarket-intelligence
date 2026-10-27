@@ -9,7 +9,7 @@ is supplied; it is intentionally not durable across backend restarts.
 import importlib.util
 import json
 import os
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, Iterator
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
@@ -291,7 +291,7 @@ def _format_forecast_metric_context(evidence: dict) -> str:
 
     if len(lines) == 4:
         return ""
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def _finalize_agent_turn(state: WorkflowState) -> dict:
@@ -446,3 +446,117 @@ def ask_agricultural_question(
         config=config,
     )
     return result["answer"]
+
+
+
+def stream_agricultural_question(
+    question: str,
+    crop: str | None = None,
+    location: str | None = None,
+    conversation_id: str | None = None,
+) -> Iterator[dict]:
+    """Yield real LangGraph node/tool events, followed by the final answer.
+
+    Events are derived from graph stream updates; this does not simulate agent
+    activity. The final event contains the same structured answer as the
+    synchronous API. In-process checkpoint state is still not durable.
+    """
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("Question cannot be empty.")
+
+    selected_crop = crop.strip() if isinstance(crop, str) else ""
+    selected_location = location.strip() if isinstance(location, str) else ""
+    message_content = (
+        f"Question: {question.strip()}\n"
+        f"Selected crop context: {selected_crop or 'not specified'}\n"
+        f"Selected climate location context: {selected_location or 'not specified'}"
+    )
+    config = {"configurable": {"thread_id": conversation_id or __import__("uuid").uuid4().hex}}
+    config["recursion_limit"] = 2 * MAX_TOOL_ROUNDS + 8
+    initial = {
+        "question": question.strip(),
+        "crop": selected_crop,
+        "location": selected_location,
+        "messages": [HumanMessage(content=message_content)],
+    }
+
+    final_answer = None
+    for update in agricultural_workflow.stream(
+        initial, config=config, stream_mode="updates"
+    ):
+        for node_name, node_update in update.items():
+            messages = node_update.get("messages", []) if isinstance(node_update, dict) else []
+            for message in messages:
+                tool_calls = getattr(message, "tool_calls", None) or []
+                for call in tool_calls:
+                    yield {
+                        "type": "tool_call",
+                        "node": node_name,
+                        "tool": call.get("name", "unknown_tool"),
+                        "status": "requested",
+                        "input": call.get("args", {}),
+                    }
+                if isinstance(message, ToolMessage):
+                    yield {
+                        "type": "tool_result",
+                        "node": node_name,
+                        "tool": getattr(message, "name", "unknown_tool"),
+                        "status": "returned",
+                        "content": str(message.content)[:12000],
+                    }
+
+            event = {
+                "type": "node",
+                "node": node_name,
+                "status": "completed",
+                "detail": _node_event_detail(node_name, node_update),
+            }
+            yield event
+            if isinstance(node_update, dict) and isinstance(node_update.get("answer"), dict):
+                final_answer = node_update["answer"]
+
+    if final_answer is None:
+        # Defensive fallback: the graph should emit a terminal answer update.
+        final_answer = ask_agricultural_question(
+            question, crop, location, conversation_id
+        )
+    if not final_answer.get("analysis"):
+        from agrimarket.ai.analyst import summarize_evidence_with_metadata
+        evidence_for_summary = {
+            **final_answer.get("evidence", {}),
+            "validation": final_answer.get("validation", {}),
+        }
+        final_answer.update(
+            summarize_evidence_with_metadata(question.strip(), evidence_for_summary)
+        )
+    yield {"type": "final", "answer": final_answer}
+
+
+def _node_event_detail(node_name: str, update: dict) -> str:
+    """Human-readable detail grounded in the actual graph node update."""
+    if node_name == "route":
+        tasks = update.get("tasks", [])
+        return "Selected specialists: " + (", ".join(tasks) if tasks else "none")
+    if node_name == "specialists":
+        evidence = update.get("evidence", {})
+        return f"Retrieved evidence from {len(evidence)} specialist(s)"
+    if node_name == "validate":
+        validation = update.get("validation", {})
+        return f"Evidence validation: {validation.get('status', 'unknown')}"
+    if node_name == "tools":
+        return "Tool execution node returned results"
+    if node_name == "agent":
+        messages = update.get("messages", [])
+        calls = [
+            call.get("name", "tool")
+            for message in messages
+            for call in (getattr(message, "tool_calls", None) or [])
+        ]
+        return "Model selected: " + (", ".join(calls) if calls else "next reasoning step")
+    if node_name == "agent_finalize":
+        answer = update.get("answer", {})
+        return f"Final answer prepared; {len(answer.get('agents_used', []))} specialist(s) reported"
+    if node_name == "summarize":
+        answer = update.get("answer", {})
+        return f"Evidence summary prepared; {len(answer.get('agents_used', []))} specialist(s)"
+    return "Workflow node completed"
