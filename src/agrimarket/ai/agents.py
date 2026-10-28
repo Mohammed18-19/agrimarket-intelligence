@@ -77,7 +77,7 @@ def production_agent(crop: str | None = None) -> dict:
 
 
 def climate_agent(location: str | None = None) -> dict:
-    """Summarize observed annual climate conditions by location."""
+    """Return a complete location history or the latest national overview."""
     df = _read("nasa_power_annual.csv")
     required = {
         "location", "year", "mean_temperature_c", "total_precipitation"
@@ -85,17 +85,27 @@ def climate_agent(location: str | None = None) -> dict:
     if not required.issubset(df.columns):
         raise ValueError(f"Climate data needs columns: {sorted(required)}")
 
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df = df.dropna(subset=["year"]).copy()
+    df["year"] = df["year"].astype(int)
+
     if location:
         df = df[
             df["location"].astype(str).str.casefold()
-            == location.casefold()
+            == location.strip().casefold()
         ]
 
     if df.empty:
-        return {"agent": "climate", "status": "no_data", "records": []}
+        return {
+            "agent": "climate",
+            "status": "no_data",
+            "records": [],
+            "requested_location": location,
+        }
 
-    df["year"] = pd.to_numeric(df["year"], errors="coerce")
-    df = df.dropna(subset=["year"]).sort_values(["location", "year"])
+    df = df.sort_values(["year", "location"])
+    first_year = int(df["year"].min())
+    latest_year = int(df["year"].max())
 
     numeric = [
         col for col in (
@@ -107,22 +117,41 @@ def climate_agent(location: str | None = None) -> dict:
         ) if col in df.columns
     ]
 
+    averages = (
+        df.groupby("location")[numeric]
+        .mean()
+        .round(3)
+        .reset_index()
+        .to_dict(orient="records")
+    )
+
+    if location:
+        records_df = df.sort_values("year", ascending=False)
+        records_scope = "full_location_history"
+    else:
+        records_df = df[df["year"] == latest_year].sort_values("location")
+        records_scope = "latest_year_all_locations"
+
     return {
         "agent": "climate",
         "status": "ok",
         "locations": sorted(df["location"].astype(str).unique().tolist()),
-        "years": [int(df["year"].min()), int(df["year"].max())],
-        "annual_averages": (
-            df.groupby("location")[numeric].mean().round(3).reset_index()
-            .to_dict(orient="records")
+        "years": [first_year, latest_year],
+        "latest_year": latest_year,
+        "records_scope": records_scope,
+        "records_count": len(records_df),
+        "averages_period": f"{first_year}-{latest_year}",
+        "averages_description": (
+            "These are per-location averages across the entire available "
+            f"{first_year}-{latest_year} period, not values for one year."
         ),
-        "records": _records(df.sort_values("year", ascending=False)),
+        "annual_averages": averages,
+        "records": _records(records_df, limit=len(records_df)),
         "interpretation_limit": (
             "Climate observations alone do not establish crop suitability "
             "or prove that climate caused a production change."
         ),
     }
-
 
 def forecasting_agent(crop: str | None = None) -> dict:
     """Retrieve existing forecasts and evaluation evidence."""

@@ -48,3 +48,30 @@ def test_validation_accepts_structured_evidence():
     })
     assert result["approved"] is True
     assert result["status"] == "ok"
+
+def test_climate_national_overview_includes_latest_record_for_every_location():
+    result = climate_agent()
+    assert result["status"] == "ok"
+    assert result["records_scope"] == "latest_year_all_locations"
+    assert result["records_count"] == len(result["locations"])
+    assert len(result["records"]) == len(result["locations"])
+    assert {record["year"] for record in result["records"]} == {
+        result["latest_year"]
+    }
+
+
+def test_climate_location_request_returns_full_history():
+    result = climate_agent("Agadir")
+    assert result["status"] == "ok"
+    assert result["records_scope"] == "full_location_history"
+    assert len(result["records"]) == 10
+    assert {record["location"] for record in result["records"]} == {"Agadir"}
+    assert {record["year"] for record in result["records"]} == set(
+        range(2015, 2025)
+    )
+
+
+def test_climate_averages_disclose_their_period():
+    result = climate_agent()
+    assert result["averages_period"] == "2015-2024"
+    assert "not values for one year" in result["averages_description"]
