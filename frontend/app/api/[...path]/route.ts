@@ -7,7 +7,7 @@ const BACKEND =
 
 async function forward(request: NextRequest, context: { params: Promise<{path:string[]}> }) {
   const {path} = await context.params;
-  const target = `${BACKEND}/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
+  const target = `${BACKEND.replace(/\/+$/, '')}/api/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`;
   try {
     const response = await fetch(target, {
       method: request.method,

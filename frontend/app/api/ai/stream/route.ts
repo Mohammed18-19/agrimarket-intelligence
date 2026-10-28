@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
   const apiBase =
     process.env.AGRIMARKET_API_URL ??
     process.env.AGRIMARKET_BACKEND_URL ??
+    process.env.API_BASE_URL ??
     "http://127.0.0.1:5000";
 
   let payload: unknown;
