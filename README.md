@@ -1,6 +1,11 @@
 # AgriMarket Intelligence
 
-**Agricultural production analytics, climate-risk exploration, forecasting, and evidence-grounded AI investigations for Morocco.**
+**Agricultural production analytics, climate-risk exploration, forecasting, and evidence-grounded AI investigations for Morocco.
+
+**Live Demo:** [Open AgriMarket Intelligence](https://frontend-blush-omega-81.vercel.app/)  
+**Backend API:** [Health Check](https://agrimarket-api-dppq.onrender.com/api/health)  
+**Source Code:** [GitHub Repository](https://github.com/Mohammed18-19/agrimarket-intelligence)
+**
 
 AgriMarket Intelligence brings agricultural production data and climate indicators into one workspace. It combines a Python API, a web dashboard, forecasting outputs, and an AI investigation workflow to help users explore agricultural trends and examine possible risks.
 
