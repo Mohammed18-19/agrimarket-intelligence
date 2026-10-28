@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import DashboardSections from './components/DashboardSections';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -47,6 +47,98 @@ export default function Home() {
   const [answerData, setAnswerData] = useState<Record<string, any> | null>(null);
   const [error, setError] = useState('');
   const [activeNav, setActiveNav] = useState('Investigation Workspace');
+
+  const [productionHistory, setProductionHistory] = useState<Record<string, any>[]>([]);
+  const [productionLoading, setProductionLoading] = useState(true);
+  const [productionError, setProductionError] = useState('');
+
+  const [climateRecords, setClimateRecords] = useState<Record<string, any>[]>([]);
+  const [climateLocations, setClimateLocations] = useState<string[]>([]);
+  const [climateLocation, setClimateLocation] = useState('Kenitra');
+  const [climateLoading, setClimateLoading] = useState(true);
+  const [climateError, setClimateError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProduction() {
+      setProductionLoading(true);
+      setProductionError('');
+
+      try {
+        const response = await fetch(
+          `/api/crops/${encodeURIComponent(crop)}/history`
+        );
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+
+        if (!cancelled) {
+          setProductionHistory(
+            Array.isArray(payload.history) ? payload.history : []
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setProductionHistory([]);
+          setProductionError(
+            error instanceof Error ? error.message : 'Could not load production data.'
+          );
+        }
+      } finally {
+        if (!cancelled) setProductionLoading(false);
+      }
+    }
+
+    void loadProduction();
+    return () => { cancelled = true; };
+  }, [crop]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClimate() {
+      setClimateLoading(true);
+      setClimateError('');
+
+      try {
+        const response = await fetch('/api/climate');
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+
+        if (!cancelled) {
+          const records = Array.isArray(payload.records) ? payload.records : [];
+          const locations = Array.isArray(payload.locations) ? payload.locations : [];
+
+          setClimateRecords(records);
+          setClimateLocations(locations);
+
+          if (locations.length && !locations.includes(climateLocation)) {
+            setClimateLocation(
+              locations.includes('Kenitra') ? 'Kenitra' : locations[0]
+            );
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setClimateRecords([]);
+          setClimateError(
+            error instanceof Error ? error.message : 'Could not load climate data.'
+          );
+        }
+      } finally {
+        if (!cancelled) setClimateLoading(false);
+      }
+    }
+
+    void loadClimate();
+    return () => { cancelled = true; };
+  }, []);
 
   async function runInvestigation() {
     if (!question.trim() || running) return;
@@ -424,16 +516,122 @@ export default function Home() {
             <section className="viz-section">
               <h2><BarChart3 size={18} /> Key Visualizations</h2>
               <div className="viz-grid">
-                <div className="panel viz-card"><strong>{crop} Production</strong><span>Historical dataset</span>
-                  <div className="mini-chart"><svg viewBox="0 0 240 100" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#25d895" stopOpacity=".35"/><stop offset="100%" stopColor="#25d895" stopOpacity="0"/></linearGradient></defs><path d="M0,78 L25,67 L50,70 L75,57 L100,60 L125,44 L150,50 L175,30 L200,35 L240,12 L240,100 L0,100Z" fill="url(#area)"/><path d="M0,78 L25,67 L50,70 L75,57 L100,60 L125,44 L150,50 L175,30 L200,35 L240,12" fill="none" stroke="#35e6a0" strokeWidth="2.5"/></svg></div>
-                  <div className="chart-foot"><span>Historical</span><span>Latest</span></div>
+                <div className="panel viz-card">
+                  <strong>{crop} Production</strong>
+                  <span>Annual observations · tonnes (t)</span>
+
+                  {productionLoading ? (
+                    <p className="chart-state">Loading production history…</p>
+                  ) : productionError ? (
+                    <p className="chart-state chart-error">Production data unavailable: {productionError}</p>
+                  ) : productionHistory.length === 0 ? (
+                    <p className="chart-state">No historical observations available for {crop}.</p>
+                  ) : (
+                    <>
+                      <div className="bar-chart data-bars">
+                        {productionHistory.map((record, index) => {
+                          const value = Number(record.Value);
+                          const maxValue = Math.max(
+                            ...productionHistory.map(row => Number(row.Value) || 0),
+                            1
+                          );
+
+                          return (
+                            <div className="data-bar" key={`${record.Year}-${index}`}>
+                              <i
+                                title={`${record.Year}: ${Number.isFinite(value) ? value.toLocaleString() : 'Unavailable'} ${record.Unit || 't'}`}
+                                style={{
+                                  height: `${Number.isFinite(value) && value >= 0 ? Math.max(3, value / maxValue * 100) : 0}%`,
+                                  visibility: Number.isFinite(value) && value >= 0 ? 'visible' : 'hidden',
+                                }}
+                              />
+                              <small>{String(record.Year ?? '').slice(-2)}</small>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="chart-foot">
+                        <span>{productionHistory[0]?.Year}</span>
+                        <span>
+                          Latest: {productionHistory[productionHistory.length - 1]?.Year}
+                        </span>
+                      </div>
+                      <p className="chart-note">
+                        Bars are scaled relative to the largest displayed annual value. Hover over a bar for its value.
+                      </p>
+                    </>
+                  )}
                 </div>
-                <div className="panel viz-card"><strong>Climate Indicators</strong><span>Annual comparison</span>
-                  <div className="bar-chart">{[28,38,32,51,44,64,56,74,66,88].map((n,i)=><i key={i} style={{height:`${n}%`}} />)}</div>
-                  <div className="chart-foot"><span>Earlier</span><span>Recent</span></div>
+
+                <div className="panel viz-card">
+                  <strong>Climate Indicators</strong>
+                  <span>Mean annual temperature · °C</span>
+
+                  <label className="climate-select-label" htmlFor="climate-location">
+                    Location
+                  </label>
+                  <select
+                    id="climate-location"
+                    className="climate-location-select"
+                    value={climateLocation}
+                    onChange={event => setClimateLocation(event.target.value)}
+                    disabled={climateLoading || climateLocations.length === 0}
+                  >
+                    {climateLocations.map(location => (
+                      <option key={location} value={location}>{location}</option>
+                    ))}
+                  </select>
+
+                  {climateLoading ? (
+                    <p className="chart-state">Loading climate observations…</p>
+                  ) : climateError ? (
+                    <p className="chart-state chart-error">Climate data unavailable: {climateError}</p>
+                  ) : climateRecords.filter(
+                    record => record.location === climateLocation &&
+                      Number.isFinite(Number(record.mean_temperature_c))
+                  ).length === 0 ? (
+                    <p className="chart-state">
+                      No temperature observations available for {climateLocation}.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="bar-chart data-bars">
+                        {climateRecords
+                          .filter(record =>
+                            record.location === climateLocation &&
+                            Number.isFinite(Number(record.mean_temperature_c))
+                          )
+                          .sort((a, b) => Number(a.year) - Number(b.year))
+                          .map((record, index, records) => {
+                            const value = Number(record.mean_temperature_c);
+                            const minValue = Math.min(...records.map(row => Number(row.mean_temperature_c)));
+                            const maxValue = Math.max(...records.map(row => Number(row.mean_temperature_c)));
+                            const range = maxValue - minValue;
+
+                            return (
+                              <div className="data-bar" key={`${record.year}-${index}`}>
+                                <i
+                                  title={`${record.location}, ${record.year}: ${value.toFixed(2)} °C`}
+                                  style={{
+                                    height: `${range === 0 ? 100 : 8 + ((value - minValue) / range) * 92}%`,
+                                  }}
+                                />
+                                <small>{String(record.year).slice(-2)}</small>
+                              </div>
+                            );
+                          })}
+                      </div>
+                      <div className="chart-foot">
+                        <span>Lower bar = cooler year</span>
+                        <span>Higher bar = warmer year</span>
+                      </div>
+                      <p className="chart-note">
+                        Bar heights show relative temperatures within this location's available years, not a common scale across locations.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
-              <p className="chart-note">Illustrative chart styling. Connect verified API series before treating chart values as results.</p>
             </section>
 
             <section className="panel sources-panel">

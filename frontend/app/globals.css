@@ -589,3 +589,81 @@ h1 { margin: 0; font-size: clamp(23px, 2vw, 32px); line-height: 1.25; letter-spa
   .markdown-report .md-report-table { font-size: 10px; }
   .markdown-report .md-report-table th, .markdown-report .md-report-table td { padding: 8px; }
 }
+
+/* Real-data dashboard charts */
+.data-bars {
+  align-items: stretch;
+  justify-content: space-around;
+  gap: 5px;
+  padding: 8px 3px 0;
+}
+
+.data-bar {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+}
+
+.data-bar i {
+  display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 17px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(to top, #1769da, #3987ff);
+}
+
+.data-bar:first-child i {
+  background: linear-gradient(to top, #16865d, #35e6a0);
+}
+
+.data-bar small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.chart-state {
+  min-height: 112px;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.chart-error {
+  color: #ffadad;
+}
+
+.climate-select-label {
+  display: block;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.climate-location-select {
+  width: 100%;
+  margin-top: 5px;
+  padding: 8px;
+  color: #e1ece7;
+  background: #081d30;
+  border: 1px solid #23435e;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.climate-location-select:disabled {
+  opacity: 0.6;
+}
+
+.viz-card .chart-note {
+  margin-top: 8px;
+}
