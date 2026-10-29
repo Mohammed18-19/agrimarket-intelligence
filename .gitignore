@@ -52,3 +52,6 @@ frontend/.env*
 !data/processed/faostat_morocco_production.csv
 !data/processed/crop_production_forecasts.csv
 !data/processed/nasa_power_annual.csv
+
+# Generated TypeScript build metadata
+frontend/tsconfig.tsbuildinfo
