@@ -1,6 +1,6 @@
 """LangGraph orchestration for tool-using agricultural intelligence.
 
-With GROQ_API_KEY configured, the model dynamically selects specialist tools.
+With OPENROUTER_API_KEY configured, the model dynamically selects specialist tools.
 Without a key, a deterministic workflow still returns real dataset evidence.
 Conversation state is kept in an in-process checkpointer when conversation_id
 is supplied; it is intentionally not durable across backend restarts.
@@ -29,7 +29,10 @@ from agrimarket.ai.agents import (
 
 
 MAX_TOOL_ROUNDS = 5
-MODEL_NAME = os.getenv("AGRIMARKET_LLM_MODEL", "openai/gpt-oss-120b")
+MODEL_NAME = os.getenv(
+    "AGRIMARKET_LLM_MODEL",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+)
 
 
 class WorkflowState(TypedDict, total=False):
@@ -110,30 +113,66 @@ AGRICULTURAL_TOOLS = [
     get_crop_forecasts,
 ]
 
-SYSTEM_PROMPT = """You are AgriMarket Intelligence, an agricultural data analyst
-focused on Morocco. You can call tools that retrieve the project's real
-FAOSTAT production data, NASA POWER annual climate observations, and existing
-experimental forecasts.
+SYSTEM_PROMPT = """You are AgriMarket Intelligence, an evidence-grounded
+agricultural data analyst focused on Morocco.
 
-For factual production, climate, or forecast questions, call the relevant
-tools before answering. Use only relevant tools and base numeric claims on
-their outputs. Distinguish observed values from forecasts and state the year,
-unit, and method when available.
+You can retrieve:
+- FAOSTAT-derived national agricultural production records.
+- NASA POWER annual climate observations for the available Moroccan locations.
+- Existing experimental crop-production forecasts and evaluation metrics.
 
-Forecast metric rules:
-- validation_mae is the model-selection score for the period identified by
+EVIDENCE RULES
+1. For factual questions about production, climate, or forecasts, call the
+   relevant data tools before answering. Do not invent measurements or sources.
+2. Treat tool outputs as the source of truth for numerical claims. Preserve
+   the original units, years, crop names, and geographic scope.
+3. Distinguish clearly between:
+   - Observed data retrieved from the project.
+   - Calculations directly derived from retrieved data.
+   - General background knowledge.
+   - Hypotheses or questions requiring further investigation.
+4. Never present a hypothesis or general agricultural rule as a result proved
+   by this project's datasets. Do not invent rainfall thresholds, temperature
+   thresholds, yield expectations, profitability, or crop rankings.
+5. National production volume does not establish local suitability, yield per
+   hectare, profitability, demand, or water efficiency. Do not infer these
+   from production totals alone.
+6. Climate averages from one location do not represent all of Morocco.
+   Annual averages may conceal seasonal extremes, drought periods, and
+   crop-specific growing conditions.
+7. Do not claim climate caused a production change merely because both changed.
+   Production may also depend on planted area, irrigation, management, prices,
+   pests, and other factors not established by these data.
+8. When asked which crop to plant or which crop is most suitable, explain
+   that the available evidence can support preliminary screening, not a
+   validated agronomic recommendation. Identify missing evidence such as
+   soil conditions, seasonal climate, irrigation availability, local yields,
+   input costs, market prices, and farmer objectives.
+9. If the requested evidence is missing, conflicting, or insufficient, say
+   exactly what is missing. Give a useful partial answer when possible rather
+   than filling gaps with unsupported certainty.
+
+FORECAST METRIC RULES
+- A forecast is an estimate, never an observed value or guarantee.
+- validation_mae is the model-selection score for the period specified by
   validation_start_year and validation_end_year.
-- An evaluation entry's MAE is a separate reported metric associated with its
+- An evaluation entry's MAE is a separate metric associated with its
   test_observations count. Never substitute one metric for the other.
 - Do not infer evaluation years, sample independence, or overlap from the
-  observation count alone. State when those details are unavailable.
-- Never describe a forecast as an observed value.
+  observation count alone. State when these details are unavailable.
+- Include the method, unit, and evaluation period whenever the evidence
+  supplies them and they are relevant to the question.
 
-Never invent data, infer causation from correlation, or claim that one climate
-location represents all of Morocco. Explain important data limitations.
-Evidence validation checks data availability and structure; it does not prove
-that every generated statement is factually correct. Keep answers useful,
-direct, and evidence-grounded."""
+ANSWER QUALITY
+- Answer the user's actual question directly.
+- Use concise sections where helpful: Findings, Interpretation, Limitations,
+  and Next steps.
+- Support every important numerical claim with retrieved evidence.
+- Label derived calculations and briefly explain their calculation.
+- Do not claim evidence validation proves that every generated sentence
+  is factually correct.
+- Never claim a tool ran successfully unless its output confirms success.
+"""
 
 
 def route_question(state: WorkflowState) -> dict:
@@ -269,20 +308,54 @@ def summarize(state: WorkflowState) -> dict:
 
 def _model_agent(state: WorkflowState) -> dict:
     """Ask the configured model to select and invoke data tools."""
-    from langchain_groq import ChatGroq
+    from langchain_openai import ChatOpenAI
 
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise RuntimeError("GROQ_API_KEY is not configured.")
+        raise RuntimeError("OPENROUTER_API_KEY is not configured.")
 
-    model = ChatGroq(
-        model=os.getenv("AGRIMARKET_LLM_MODEL", MODEL_NAME),
+    model = ChatOpenAI(
+        model=MODEL_NAME,
+        base_url="https://openrouter.ai/api/v1",
         temperature=0,
         api_key=api_key,
     ).bind_tools(AGRICULTURAL_TOOLS)
 
     messages = state.get("messages", [])
-    response = model.invoke([SystemMessage(content=SYSTEM_PROMPT), *messages])
+
+    # Send only the current user turn to the model. Earlier turns remain in
+    # checkpoint state but must not consume the current request's token budget.
+    last_human_index = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[index], HumanMessage)
+        ),
+        0,
+    )
+    current_turn = messages[last_human_index:]
+    model_messages = []
+
+    # Tool results remain complete in LangGraph state for evidence and final
+    # answer generation. Only the copies sent to the LLM are shortened.
+    max_tool_chars = 1800
+    for message in current_turn:
+        if isinstance(message, ToolMessage):
+            content = message.content
+            if not isinstance(content, str):
+                content = json.dumps(content, ensure_ascii=False, default=str)
+            if len(content) > max_tool_chars:
+                content = (
+                    content[:max_tool_chars]
+                    + "\\n[Tool result shortened for model context; "
+                    "full result remains available in workflow state.]"
+                )
+                message = message.model_copy(update={"content": content})
+        model_messages.append(message)
+
+    response = model.invoke(
+        [SystemMessage(content=SYSTEM_PROMPT), *model_messages]
+    )
     return {
         "messages": [response],
         "tool_rounds": int(state.get("tool_rounds", 0)) + 1,
@@ -369,7 +442,7 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
     evidence = {}
     tool_to_agent = {
         "get_crop_production": "production",
-        "get_crop_production_comparison": "production",
+        "get_crop_production_comparison": "production_comparison",
         "get_climate_observations": "climate",
         "get_crop_forecasts": "forecasting",
     }
@@ -383,6 +456,14 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
         try:
             payload = json.loads(message.content)
             if isinstance(payload, dict):
+                previous = evidence.get(key)
+                # Preserve usable evidence if a later call fails or returns no data.
+                if (
+                    isinstance(previous, dict)
+                    and previous.get("status") == "ok"
+                    and payload.get("status") != "ok"
+                ):
+                    continue
                 evidence[key] = payload
         except (TypeError, json.JSONDecodeError):
             evidence[key] = {
@@ -423,7 +504,7 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
             "evidence": evidence,
             "validation": validation,
             "analysis": analysis,
-            "analysis_source": "groq",
+            "analysis_source": "openrouter",
             "analysis_model": os.getenv("AGRIMARKET_LLM_MODEL", MODEL_NAME),
             "analysis_fallback_reason": None,
             "note": (
@@ -437,10 +518,10 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
 def _route_mode(state: WorkflowState) -> str:
     # Do not crash if a user sets the key but has not installed the optional
     # provider package; the deterministic workflow remains available.
-    provider_installed = importlib.util.find_spec("langchain_groq") is not None
+    provider_installed = importlib.util.find_spec("langchain_openai") is not None
     return (
         "agent"
-        if os.getenv("GROQ_API_KEY") and provider_installed
+        if os.getenv("OPENROUTER_API_KEY") and provider_installed
         else "specialists"
     )
 
@@ -588,7 +669,10 @@ def stream_agricultural_question(
         final_answer = ask_agricultural_question(
             question, crop, location, conversation_id
         )
-    if not final_answer.get("analysis"):
+    if (
+        not final_answer.get("analysis")
+        or "did not return a final explanation" in str(final_answer.get("analysis", ""))
+    ):
         from agrimarket.ai.analyst import summarize_evidence_with_metadata
         evidence_for_summary = {
             **final_answer.get("evidence", {}),

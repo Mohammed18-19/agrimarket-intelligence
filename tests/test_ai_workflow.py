@@ -161,3 +161,83 @@ def test_forecast_metric_context_is_empty_without_forecast_evidence():
     assert _format_forecast_metric_context({
         "forecasting": {"status": "error"}
     }) == ""
+
+
+def test_finalize_keeps_production_comparison_separate_from_crop_history():
+    import json
+    from langchain_core.messages import AIMessage, ToolMessage
+    from agrimarket.ai.workflow import _finalize_agent_turn
+
+    messages = [
+        ToolMessage(
+            name="get_crop_production_comparison",
+            tool_call_id="comparison-call",
+            content=json.dumps({
+                "agent": "production_comparison",
+                "status": "ok",
+                "crop_count": 92,
+                "records": [{"crop": "Wheat", "latest_production": 100}],
+            }),
+        ),
+        ToolMessage(
+            name="get_crop_production",
+            tool_call_id="wheat-call",
+            content=json.dumps({
+                "agent": "production",
+                "status": "ok",
+                "crop": "Wheat",
+                "records": [{"Item": "Wheat", "Value": 100}],
+            }),
+        ),
+        AIMessage(content="Comparison and crop history retrieved."),
+    ]
+
+    result = _finalize_agent_turn({
+        "question": "Compare crops and inspect Wheat production",
+        "messages": messages,
+        "turn_start": 0,
+    })
+
+    evidence = result["answer"]["evidence"]
+    assert evidence["production"]["crop"] == "Wheat"
+    assert evidence["production_comparison"]["crop_count"] == 92
+
+
+def test_finalize_does_not_let_no_data_erase_successful_production():
+    import json
+    from langchain_core.messages import AIMessage, ToolMessage
+    from agrimarket.ai.workflow import _finalize_agent_turn
+
+    messages = [
+        ToolMessage(
+            name="get_crop_production",
+            tool_call_id="success-call",
+            content=json.dumps({
+                "agent": "production",
+                "status": "ok",
+                "crop": "Wheat",
+                "records": [{"Item": "Wheat", "Value": 100}],
+            }),
+        ),
+        ToolMessage(
+            name="get_crop_production",
+            tool_call_id="empty-call",
+            content=json.dumps({
+                "agent": "production",
+                "status": "no_data",
+                "records": [],
+            }),
+        ),
+        AIMessage(content="Production evidence was retrieved."),
+    ]
+
+    result = _finalize_agent_turn({
+        "question": "Check Wheat production",
+        "messages": messages,
+        "turn_start": 0,
+    })
+
+    production = result["answer"]["evidence"]["production"]
+    assert production["status"] == "ok"
+    assert production["crop"] == "Wheat"
+    assert result["answer"]["analysis_source"] == "openrouter"
