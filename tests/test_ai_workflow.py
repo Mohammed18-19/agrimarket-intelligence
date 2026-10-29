@@ -21,6 +21,53 @@ def test_router_uses_all_specialists_for_general_question():
     assert result["tasks"] == ["production", "climate", "forecasting"]
 
 
+
+def test_suitability_router_prefers_explicit_agadir_over_morocco_and_clears_crop():
+    from agrimarket.ai.workflow import route_question
+
+    result = route_question({
+        "question": (
+            "I'm a farmer in the Agadir region of Morocco. Which crops "
+            "would be most suitable, and what climate risks should I consider?"
+        ),
+        "location": "Morocco",
+        "crop": "Wheat",
+        "messages": [],
+    })
+
+    assert result["location"] == "Agadir"
+    assert result["crop"] == ""
+    assert "climate" in result["tasks"]
+    assert "production" in result["tasks"]
+
+
+def test_suitability_fallback_compares_crops_and_uses_agadir_climate():
+    from agrimarket.ai.workflow import route_question, run_agents
+
+    state = {
+        "question": (
+            "I'm a farmer in the Agadir region of Morocco. Based on historical "
+            "climate data and agricultural production trends, which crops "
+            "would be most suitable for my region, and what climate risks "
+            "should I consider before planting?"
+        ),
+        "location": "Morocco",
+        "crop": "Wheat",
+        "messages": [],
+    }
+    state.update(route_question(state))
+    state.update(run_agents(state))
+
+    production = state["evidence"]["production"]
+    climate = state["evidence"]["climate"]
+
+    assert production["status"] == "ok"
+    assert production["crop_count"] == 92
+    assert climate["status"] == "ok"
+    assert climate["locations"] == ["Agadir"]
+    assert climate["years"] == [2015, 2024]
+
+
 def test_empty_question_is_rejected():
     try:
         ask_agricultural_question("   ")
