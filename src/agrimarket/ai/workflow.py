@@ -18,6 +18,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+from agrimarket.ai.production_comparison import production_comparison_agent
+
 from agrimarket.ai.agents import (
     climate_agent,
     forecasting_agent,
@@ -69,6 +71,18 @@ def get_crop_production(crop: str = "") -> str:
 
 
 @tool
+def get_crop_production_comparison() -> str:
+    """Compare the latest recorded production across Moroccan crops.
+
+    Use for crop-comparison and crop-suitability questions. Production
+    volume alone does not establish agronomic suitability.
+    """
+    return _tool_result(
+        "production_comparison", production_comparison_agent
+    )
+
+
+@tool
 def get_climate_observations(location: str = "") -> str:
     """Retrieve annual NASA POWER climate observations for Morocco.
 
@@ -91,6 +105,7 @@ def get_crop_forecasts(crop: str = "") -> str:
 
 AGRICULTURAL_TOOLS = [
     get_crop_production,
+    get_crop_production_comparison,
     get_climate_observations,
     get_crop_forecasts,
 ]
@@ -122,9 +137,45 @@ direct, and evidence-grounded."""
 
 
 def route_question(state: WorkflowState) -> dict:
-    """Route deterministically when no hosted model is configured."""
-    question = state["question"].casefold()
+    """Route deterministically and preserve explicit question context."""
+    raw_question = state["question"]
+    question = raw_question.casefold()
     tasks = []
+
+    # An explicitly named dataset location takes precedence over a generic
+    # dashboard selection such as "Morocco".
+    requested_location = state.get("location") or None
+    try:
+        available_locations = climate_agent().get("locations", [])
+    except (OSError, ValueError, KeyError):
+        available_locations = []
+
+    matches = [
+        name for name in available_locations
+        if name.casefold() in question
+    ]
+    if matches:
+        requested_location = max(matches, key=len)
+    elif requested_location:
+        normalized = requested_location.strip().casefold()
+        exact = next(
+            (name for name in available_locations
+             if name.casefold() == normalized),
+            None,
+        )
+        # "Morocco" is not a location in the annual climate dataset.
+        requested_location = exact
+
+    suitability_question = any(term in question for term in (
+        "suitable", "suitability", "best crops", "which crops",
+        "most suitable", "crop selection", "what should i plant",
+    ))
+
+    # A dashboard default must not turn a crop-comparison question into
+    # a single-crop investigation.
+    selected_crop = state.get("crop") or None
+    if suitability_question:
+        selected_crop = None
 
     if any(word in question for word in (
         "climate", "temperature", "rain", "rainfall", "precipitation",
@@ -147,7 +198,14 @@ def route_question(state: WorkflowState) -> dict:
     if not tasks:
         tasks = ["production", "climate", "forecasting"]
 
-    updates = {"tasks": list(dict.fromkeys(tasks))}
+    if suitability_question:
+        tasks = list(dict.fromkeys([*tasks, "climate", "production"]))
+
+    updates = {
+        "tasks": list(dict.fromkeys(tasks)),
+        "location": requested_location or "",
+        "crop": selected_crop or "",
+    }
     messages = state.get("messages", [])
     # The most recent message is the current user turn before tool calls begin.
     updates["turn_start"] = max(0, len(messages) - 1)
@@ -161,10 +219,19 @@ def run_agents(state: WorkflowState) -> dict:
     crop = state.get("crop") or None
     location = state.get("location") or None
 
+    question = state.get("question", "").casefold()
+    suitability_question = any(term in question for term in (
+        "suitable", "suitability", "best crops", "which crops",
+        "most suitable", "crop selection", "what should i plant",
+    ))
+
     for task in state["tasks"]:
         try:
             if task == "production":
-                evidence[task] = production_agent(crop)
+                if suitability_question:
+                    evidence[task] = production_comparison_agent()
+                else:
+                    evidence[task] = production_agent(crop)
             elif task == "climate":
                 evidence[task] = climate_agent(location)
             elif task == "forecasting":
@@ -302,6 +369,7 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
     evidence = {}
     tool_to_agent = {
         "get_crop_production": "production",
+        "get_crop_production_comparison": "production",
         "get_climate_observations": "climate",
         "get_crop_forecasts": "forecasting",
     }
