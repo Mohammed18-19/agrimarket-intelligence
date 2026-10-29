@@ -241,3 +241,55 @@ def test_finalize_does_not_let_no_data_erase_successful_production():
     assert production["status"] == "ok"
     assert production["crop"] == "Wheat"
     assert result["answer"]["analysis_source"] == "openrouter"
+
+
+def test_climate_numeric_guard_replaces_contradictory_rainfall_claim():
+    from agrimarket.ai.workflow import _ground_climate_numeric_claims
+
+    evidence = {
+        "climate": {
+            "status": "ok",
+            "records": [
+                {
+                    "location": "Agadir",
+                    "year": 2018,
+                    "mean_temperature_c": 20.0371,
+                    "total_precipitation": 284.22,
+                }
+            ],
+        }
+    }
+
+    answer, conflict = _ground_climate_numeric_claims(
+        "Agadir received 245.6 mm of rainfall in 2018.",
+        evidence,
+    )
+
+    assert conflict is True
+    assert "245.6 mm" not in answer
+    assert "284.22 mm" in answer
+    assert "evidence-based summary" in answer
+
+
+def test_climate_numeric_guard_preserves_matching_claim():
+    from agrimarket.ai.workflow import _ground_climate_numeric_claims
+
+    evidence = {
+        "climate": {
+            "status": "ok",
+            "records": [
+                {
+                    "location": "Agadir",
+                    "year": 2018,
+                    "mean_temperature_c": 20.0371,
+                    "total_precipitation": 284.22,
+                }
+            ],
+        }
+    }
+
+    original = "Agadir received 284.22 mm of rainfall in 2018."
+    answer, conflict = _ground_climate_numeric_claims(original, evidence)
+
+    assert conflict is False
+    assert answer == original

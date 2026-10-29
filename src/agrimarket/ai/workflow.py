@@ -434,6 +434,109 @@ def _format_forecast_metric_context(evidence: dict) -> str:
     return "\n".join(lines)
 
 
+
+def _ground_climate_numeric_claims(analysis: str, evidence: dict) -> tuple[str, bool]:
+    """Replace year-specific climate numbers that conflict with retrieved records."""
+    import re
+
+    climate = evidence.get("climate", {})
+    records = climate.get("records", []) if isinstance(climate, dict) else []
+    if not isinstance(records, list) or not records:
+        return analysis, False
+
+    metric_patterns = {
+        "total_precipitation": re.compile(r"\b(rainfall|precipitation|rain)\b", re.I),
+        "mean_temperature_c": re.compile(r"\b(temperature|temp|°\s*c|celsius)\b", re.I),
+        "mean_daily_solar_radiation": re.compile(r"\bsolar radiation\b", re.I),
+    }
+    year_re = re.compile(r"\b(?:19|20)\d{2}\b")
+    number_re = re.compile(r"(?<![A-Za-z])[-+]?\d[\d,]*(?:\.\d+)?")
+
+    index = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        try:
+            index[(str(record["location"]).casefold(), int(record["year"]))] = record
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    conflict = False
+    for sentence in re.split(r"(?<=[.!?])\s+", analysis):
+        years = [int(y) for y in year_re.findall(sentence)]
+        metrics = [field for field, pattern in metric_patterns.items() if pattern.search(sentence)]
+        if not years or not metrics:
+            continue
+
+        values = []
+        for token in number_re.findall(sentence):
+            try:
+                value = float(token.replace(",", ""))
+            except ValueError:
+                continue
+            if int(value) not in years if value.is_integer() else True:
+                values.append(value)
+
+        if not values:
+            continue
+
+        mentioned_locations = [
+            location for location, _ in index
+            if location and re.search(rf"(?<!\w){re.escape(location)}(?!\w)", sentence, re.I)
+        ]
+        locations = mentioned_locations or list({location for location, _ in index})
+
+        for year in years:
+            candidates = [
+                index[(location, year)]
+                for location in locations
+                if (location, year) in index
+            ]
+            for field in metrics:
+                expected = []
+                for record in candidates:
+                    try:
+                        expected.append(float(record[field]))
+                    except (KeyError, TypeError, ValueError):
+                        pass
+                if expected and not any(
+                    abs(value - actual) <= max(0.02, abs(actual) * 0.001)
+                    for value in values
+                    for actual in expected
+                ):
+                    conflict = True
+
+    if not conflict:
+        return analysis, False
+
+    lines = [
+        "The generated explanation contained a climate number that conflicted "
+        "with the retrieved observations. The explanation has been replaced "
+        "with an evidence-based summary using the source records below.",
+        "",
+        "Annual climate observations:",
+    ]
+    for record in sorted(
+        (r for r in records if isinstance(r, dict)),
+        key=lambda r: (str(r.get("location", "")), int(r.get("year", 0))),
+    ):
+        try:
+            lines.append(
+                f"- {record['location']}, {int(record['year'])}: "
+                f"mean temperature {float(record['mean_temperature_c']):.2f} °C; "
+                f"precipitation {float(record['total_precipitation']):.2f} mm."
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    lines.extend([
+        "",
+        "These observations do not by themselves establish that climate caused "
+        "a change in crop production.",
+    ])
+    return "\n".join(lines), True
+
+
 def _finalize_agent_turn(state: WorkflowState) -> dict:
     """Extract structured tool evidence and the final model answer."""
     messages = state.get("messages", [])
@@ -492,6 +595,19 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
             "validation details below."
         )
 
+    analysis, climate_numeric_conflict = _ground_climate_numeric_claims(
+        analysis, evidence
+    )
+    if climate_numeric_conflict:
+        validation = dict(validation)
+        validation["status"] = "needs_review"
+        validation["approved"] = False
+        validation["answer_verified"] = False
+        validation["issues"] = list(validation.get("issues", [])) + [
+            "Climate numerical claims conflicted with retrieved records; "
+            "the explanation was replaced with an evidence-based summary."
+        ]
+
     analysis += _format_forecast_metric_context(evidence)
 
     return {
@@ -504,9 +620,13 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
             "evidence": evidence,
             "validation": validation,
             "analysis": analysis,
-            "analysis_source": "openrouter",
+            "analysis_source": (
+                "evidence_fallback" if climate_numeric_conflict else "openrouter"
+            ),
             "analysis_model": os.getenv("AGRIMARKET_LLM_MODEL", MODEL_NAME),
-            "analysis_fallback_reason": None,
+            "analysis_fallback_reason": (
+                "numeric_climate_claim_conflict" if climate_numeric_conflict else None
+            ),
             "note": (
                 "Tool-grounded answer. Forecasts are estimates; climate "
                 "observations do not by themselves establish causation."

@@ -31,7 +31,7 @@ def _records(df: pd.DataFrame, limit: int = 20) -> list[dict]:
 
 
 def production_agent(crop: str | None = None) -> dict:
-    """Analyze observed crop production and historical changes."""
+    """Retrieve crop history or a national overview without mixing crops."""
     df = _read("faostat_morocco_production.csv")
     required = {"Item", "Year", "Unit", "Value"}
     if not required.issubset(df.columns):
@@ -39,17 +39,59 @@ def production_agent(crop: str | None = None) -> dict:
 
     df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
     df["Value"] = pd.to_numeric(df["Value"], errors="coerce")
-    df = df.dropna(subset=["Item", "Year", "Value"])
+    df = df.dropna(subset=["Item", "Year", "Unit", "Value"]).copy()
+    df = df[
+        df["Year"].mod(1).eq(0)
+        & df["Value"].map(lambda value: pd.notna(value) and abs(float(value)) != float("inf"))
+    ].copy()
+    df["Year"] = df["Year"].astype(int)
+    df["Item"] = df["Item"].astype(str).str.strip()
+    df["Unit"] = df["Unit"].astype(str).str.strip()
+    df = df[(df["Item"] != "") & (df["Unit"] != "")]
 
     if crop:
-        df = df[df["Item"].astype(str).str.casefold() == crop.casefold()]
+        requested = crop.strip().casefold()
+        df = df[df["Item"].str.casefold() == requested]
 
     if df.empty:
-        return {"agent": "production", "status": "no_data", "records": []}
+        return {
+            "agent": "production",
+            "status": "no_data",
+            "crop": crop,
+            "records": [],
+        }
 
-    df = df.sort_values("Year")
+    if not crop:
+        # A national overview must not produce a single-crop time-series metric.
+        latest_per_crop = (
+            df.sort_values(["Item", "Year"])
+            .groupby("Item", sort=True, as_index=False)
+            .tail(1)
+            .sort_values("Item")
+        )
+        return {
+            "agent": "production",
+            "status": "ok",
+            "scope": "latest_record_per_crop",
+            "crop": None,
+            "crops_count": int(latest_per_crop["Item"].nunique()),
+            "observations": int(len(df)),
+            "first_year": int(df["Year"].min()),
+            "latest_year": int(df["Year"].max()),
+            "records": _records(latest_per_crop, limit=len(latest_per_crop)),
+            "comparison_note": (
+                "This is a national crop overview, not a single-crop "
+                "year-over-year comparison."
+            ),
+        }
+
+    df = df.sort_values(["Year", "Unit"]).reset_index(drop=True)
     latest = df.iloc[-1]
-    previous = df.iloc[-2] if len(df) > 1 else None
+    previous_candidates = df[
+        (df["Year"] == int(latest["Year"]) - 1)
+        & (df["Unit"] == latest["Unit"])
+    ]
+    previous = previous_candidates.iloc[-1] if not previous_candidates.empty else None
 
     change = None
     change_pct = None
@@ -61,18 +103,18 @@ def production_agent(crop: str | None = None) -> dict:
     return {
         "agent": "production",
         "status": "ok",
-        "crop": str(latest["Item"]) if crop else None,
+        "scope": "crop_history",
+        "crop": str(latest["Item"]),
         "observations": int(len(df)),
         "first_year": int(df["Year"].min()),
         "latest_year": int(latest["Year"]),
         "latest_production": float(latest["Value"]),
         "unit": str(latest["Unit"]),
-        "previous_year_production": (
-            float(previous["Value"]) if previous is not None else None
-        ),
+        "previous_year": int(previous["Year"]) if previous is not None else None,
+        "previous_year_production": float(previous["Value"]) if previous is not None else None,
         "change": change,
         "change_percentage": change_pct,
-        "records": _records(df.sort_values("Year", ascending=False)),
+        "records": _records(df.sort_values("Year", ascending=False), limit=len(df)),
     }
 
 
@@ -195,15 +237,26 @@ def forecasting_agent(crop: str | None = None) -> dict:
 
 
 def validation_agent(evidence: dict) -> dict:
-    """Check agent evidence for missing data and unsupported claims."""
+    """Check evidence structure, not the factual correctness of model prose."""
     issues = []
+
+    base = {
+        "agent": "validation",
+        "validation_scope": "evidence_structure_only",
+        "answer_verified": False,
+        "note": (
+            "This check evaluates tool evidence structure and availability. "
+            "It does not verify numerical claims in the generated answer."
+        ),
+    }
 
     if not isinstance(evidence, dict) or not evidence:
         return {
-            "agent": "validation",
+            **base,
             "status": "insufficient_evidence",
             "issues": ["No evidence was provided."],
             "approved": False,
+            "agents_with_usable_data": 0,
         }
 
     successful = 0
@@ -218,16 +271,28 @@ def validation_agent(evidence: dict) -> dict:
             continue
 
         successful += 1
-        if not result.get("records") and not result.get("annual_averages"):
+
+        records = result.get("records")
+        averages = result.get("annual_averages")
+
+        if not isinstance(records, list):
+            issues.append(f"{name}: records must be a list.")
+        elif not records and not averages:
             issues.append(f"{name}: no supporting records were returned.")
+        elif any(not isinstance(record, dict) for record in records):
+            issues.append(f"{name}: one or more records are not structured objects.")
+
+        if averages is not None and not isinstance(averages, list):
+            issues.append(f"{name}: annual_averages must be a list.")
 
     if successful == 0:
         issues.append("No agent returned usable evidence.")
 
+    approved = successful > 0 and not issues
     return {
-        "agent": "validation",
-        "status": "ok" if successful and not issues else "needs_review",
+        **base,
+        "status": "ok" if approved else "needs_review",
         "issues": issues,
-        "approved": successful > 0 and not issues,
+        "approved": approved,
         "agents_with_usable_data": successful,
     }
