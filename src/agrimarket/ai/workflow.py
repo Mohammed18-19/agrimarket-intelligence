@@ -435,6 +435,169 @@ def _format_forecast_metric_context(evidence: dict) -> str:
 
 
 
+
+def _ground_production_numeric_claims(
+    analysis: str, evidence: dict
+) -> tuple[str, bool]:
+    """Check year-specific production figures against retrieved records."""
+    import math
+    import re
+
+    production = evidence.get("production", {})
+    if not isinstance(production, dict) or production.get("status") != "ok":
+        return analysis, False
+
+    # The national overview contains multiple crops, so year alone is not
+    # a unique key. This guard currently handles individual crop histories.
+    if production.get("scope") == "latest_record_per_crop":
+        return analysis, False
+
+    records = production.get("records", [])
+    if not isinstance(records, list):
+        return analysis, False
+
+    history = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        try:
+            year = int(record["Year"])
+            value = float(record["Value"])
+            unit = str(record["Unit"])
+            crop = str(record["Item"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        if not math.isfinite(value):
+            continue
+        history[year] = {"value": value, "unit": unit, "crop": crop}
+
+    if not history:
+        return analysis, False
+
+    year_pattern = re.compile(r"\b(?:19|20)\d{2}\b")
+    number_pattern = re.compile(r"(?<![A-Za-z])[-+]?\d[\d,]*(?:\.\d+)?")
+    topic_pattern = re.compile(
+        r"\b(production|produced|harvest|increase|decrease|change|growth|"
+        r"decline|percentage|percent|tonnes|tons)\b",
+        re.I,
+    )
+
+    def close(actual, expected):
+        return abs(actual - expected) <= max(0.02, abs(expected) * 0.001)
+
+    def expected_values(years):
+        expected = [
+            history[year]["value"]
+            for year in years
+            if year in history
+        ]
+
+        for old_year, new_year in zip(years, years[1:]):
+            old = history[old_year]
+            new = history[new_year]
+            if old["unit"] != new["unit"]:
+                continue
+
+            difference = new["value"] - old["value"]
+            expected.append(difference)
+            if old["value"] != 0:
+                expected.append(difference / old["value"] * 100)
+
+        if len(years) > 2:
+            old = history[years[0]]
+            new = history[years[-1]]
+            if old["unit"] == new["unit"]:
+                difference = new["value"] - old["value"]
+                expected.append(difference)
+                if old["value"] != 0:
+                    expected.append(difference / old["value"] * 100)
+
+        return expected
+
+    conflict = False
+
+    for sentence in re.split(r"(?<=[.!?])\s+", analysis):
+        if not topic_pattern.search(sentence):
+            continue
+
+        years = sorted({int(y) for y in year_pattern.findall(sentence)})
+        if not years:
+            continue
+
+        if any(year not in history for year in years):
+            conflict = True
+            continue
+
+        numbers = []
+        for token in number_pattern.findall(sentence):
+            value = float(token.replace(",", ""))
+            if value.is_integer() and int(value) in years:
+                continue
+            numbers.append(value)
+
+        if not numbers:
+            continue
+
+        expected = expected_values(years)
+        if not expected or not all(
+            any(close(number, candidate) for candidate in expected)
+            for number in numbers
+        ):
+            conflict = True
+
+    if not conflict:
+        return analysis, False
+
+    # Fail closed: return a deterministic summary instead of retaining
+    # potentially incorrect numerical claims from the model.
+    ordered = sorted(history.items())
+    crops = {entry["crop"] for _, entry in ordered}
+    units = {entry["unit"] for _, entry in ordered}
+
+    if len(crops) != 1 or len(units) != 1:
+        return (
+            "The production explanation could not be verified safely "
+            "against the retrieved records.",
+            True,
+        )
+
+    crop = next(iter(crops))
+    unit = next(iter(units))
+    lines = [f"Evidence-based production summary for {crop}:"]
+    lines.extend(
+        f"- {year}: {entry['value']:,.2f} {unit}"
+        for year, entry in ordered
+    )
+
+    consecutive_changes = []
+    for (old_year, old), (new_year, new) in zip(ordered, ordered[1:]):
+        if new_year != old_year + 1 or old["unit"] != new["unit"]:
+            continue
+        difference = new["value"] - old["value"]
+        percentage = (
+            difference / old["value"] * 100 if old["value"] != 0 else None
+        )
+        consecutive_changes.append(
+            (difference, percentage, old_year, new_year)
+        )
+
+    if consecutive_changes:
+        difference, percentage, old_year, new_year = consecutive_changes[-1]
+        change_text = f"{difference:+,.2f} {unit}"
+        if percentage is not None:
+            change_text += f" ({percentage:+.2f}%)"
+        lines.append(
+            f"- Change from {old_year} to {new_year}: {change_text}."
+        )
+
+    lines.append(
+        "These figures describe the retrieved records; they do not "
+        "establish the causes of production changes."
+    )
+    return "\n".join(lines), True
+
+
 def _ground_climate_numeric_claims(analysis: str, evidence: dict) -> tuple[str, bool]:
     """Replace year-specific climate numbers that conflict with retrieved records."""
     import re
@@ -598,14 +761,19 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
     analysis, climate_numeric_conflict = _ground_climate_numeric_claims(
         analysis, evidence
     )
-    if climate_numeric_conflict:
+    analysis, production_numeric_conflict = _ground_production_numeric_claims(
+        analysis, evidence
+    )
+    numeric_conflict = climate_numeric_conflict or production_numeric_conflict
+
+    if numeric_conflict:
         validation = dict(validation)
         validation["status"] = "needs_review"
         validation["approved"] = False
         validation["answer_verified"] = False
         validation["issues"] = list(validation.get("issues", [])) + [
-            "Climate numerical claims conflicted with retrieved records; "
-            "the explanation was replaced with an evidence-based summary."
+            "Climate or production numerical claims conflicted with retrieved "
+            "records; the explanation was replaced with evidence-based figures."
         ]
 
     analysis += _format_forecast_metric_context(evidence)
@@ -621,11 +789,11 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
             "validation": validation,
             "analysis": analysis,
             "analysis_source": (
-                "evidence_fallback" if climate_numeric_conflict else "openrouter"
+                "evidence_fallback" if numeric_conflict else "openrouter"
             ),
             "analysis_model": os.getenv("AGRIMARKET_LLM_MODEL", MODEL_NAME),
             "analysis_fallback_reason": (
-                "numeric_climate_claim_conflict" if climate_numeric_conflict else None
+                "numeric_claim_conflict" if numeric_conflict else None
             ),
             "note": (
                 "Tool-grounded answer. Forecasts are estimates; climate "

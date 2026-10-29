@@ -293,3 +293,75 @@ def test_climate_numeric_guard_preserves_matching_claim():
 
     assert conflict is False
     assert answer == original
+
+
+def test_production_numeric_guard_replaces_wrong_percentage():
+    from agrimarket.ai.workflow import _ground_production_numeric_claims
+
+    evidence = {"production": {"status": "ok", "records": [
+        {"Item": "Wheat", "Year": 2023, "Unit": "t", "Value": 100},
+        {"Item": "Wheat", "Year": 2024, "Unit": "t", "Value": 150},
+    ]}}
+    answer, conflict = _ground_production_numeric_claims(
+        "Wheat production increased by 20% from 2023 to 2024.", evidence
+    )
+    assert conflict is True
+    assert "increased by 20%" not in answer
+    assert "2023: 100.00 t" in answer
+    assert "2024: 150.00 t" in answer
+
+
+def test_production_numeric_guard_preserves_correct_change():
+    from agrimarket.ai.workflow import _ground_production_numeric_claims
+
+    evidence = {"production": {"status": "ok", "records": [
+        {"Item": "Wheat", "Year": 2023, "Unit": "t", "Value": 100},
+        {"Item": "Wheat", "Year": 2024, "Unit": "t", "Value": 150},
+    ]}}
+    original = "Wheat production change from 2023 to 2024 was 50 t (50%)."
+    answer, conflict = _ground_production_numeric_claims(original, evidence)
+    assert conflict is False
+    assert answer == original
+
+
+
+def test_finalize_replaces_incorrect_production_claim_and_flags_review():
+    import json
+    from langchain_core.messages import AIMessage, ToolMessage
+    from agrimarket.ai.workflow import _finalize_agent_turn
+
+    messages = [
+        ToolMessage(
+            name="get_crop_production",
+            tool_call_id="wheat-production",
+            content=json.dumps({
+                "agent": "production",
+                "status": "ok",
+                "scope": "crop_history",
+                "crop": "Wheat",
+                "records": [
+                    {"Item": "Wheat", "Year": 2023, "Unit": "t", "Value": 100},
+                    {"Item": "Wheat", "Year": 2024, "Unit": "t", "Value": 150},
+                ],
+            }),
+        ),
+        AIMessage(
+            content="Wheat production increased by 20% from 2023 to 2024."
+        ),
+    ]
+
+    result = _finalize_agent_turn({
+        "question": "How did Wheat production change from 2023 to 2024?",
+        "messages": messages,
+        "turn_start": 0,
+    })
+
+    answer = result["answer"]
+    assert answer["analysis_source"] == "evidence_fallback"
+    assert answer["analysis_fallback_reason"] == "numeric_claim_conflict"
+    assert answer["validation"]["status"] == "needs_review"
+    assert answer["validation"]["approved"] is False
+    assert answer["validation"]["answer_verified"] is False
+    assert "increased by 20%" not in answer["analysis"]
+    assert "2023: 100.00 t" in answer["analysis"]
+    assert "2024: 150.00 t" in answer["analysis"]
