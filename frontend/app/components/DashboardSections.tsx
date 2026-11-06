@@ -101,6 +101,9 @@ export default function DashboardSections({section}:{section:string}) {
   const [history,setHistory] = useState<RecordData[]>([]);
   const [summary,setSummary] = useState<RecordData>({});
   const [forecasts,setForecasts] = useState<RecordData[]>([]);
+  const [experimentalForecast,setExperimentalForecast] = useState<RecordData|null>(null);
+  const [experimentalLoading,setExperimentalLoading] = useState(false);
+  const [experimentalError,setExperimentalError] = useState('');
   const [climate,setClimate] = useState<ClimateRecord[]>([]);
   const [locations,setLocations] = useState<string[]>([]);
   const [years,setYears] = useState<number[]>([]);
@@ -136,6 +139,33 @@ export default function DashboardSections({section}:{section:string}) {
       setError(e instanceof Error ? e.message : 'Failed to load dashboard data');
     } finally { setLoading(false); }
   }
+
+  async function generateExperimentalForecast() {
+    setExperimentalLoading(true);
+    setExperimentalError('');
+    setExperimentalForecast(null);
+
+    try {
+      const response = await fetch(
+        `/api/crops/${encodeURIComponent(crop)}/experimental-forecast`,
+        {method: 'POST', cache: 'no-store'}
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      setExperimentalForecast(data);
+    } catch (e) {
+      setExperimentalError(
+        e instanceof Error ? e.message : 'Could not generate experimental forecast'
+      );
+    } finally {
+      setExperimentalLoading(false);
+    }
+  }
+
   useEffect(() => { void load(); }, [crop]);
 
   const filteredClimate = useMemo(() => climate.filter(r =>
@@ -286,6 +316,14 @@ export default function DashboardSections({section}:{section:string}) {
       <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center',marginBottom:18}}>
         <label style={{color:'#9aaca8'}}>Crop&nbsp;<select value={crop} onChange={e=>setCrop(e.target.value)} style={selectStyle}>{[...new Set(['Wheat',...crops])].map(c=><option key={c}>{c}</option>)}</select></label>
         <button onClick={()=>download(`${crop.toLowerCase().replace(/[^a-z0-9]+/g,'-')}-forecast.json`,JSON.stringify(forecasts,null,2),'application/json')} style={selectStyle}><Download size={14} style={{verticalAlign:'middle',marginRight:7}}/>Download forecast JSON</button>
+        <button
+          onClick={()=>void generateExperimentalForecast()}
+          disabled={experimentalLoading}
+          style={{...selectStyle,color:'#77edb5',borderColor:'#367b60',opacity:experimentalLoading?0.6:1}}
+        >
+          <TrendingUp size={14} style={{verticalAlign:'middle',marginRight:7}}/>
+          {experimentalLoading ? 'Generating…' : 'Generate experimental prediction'}
+        </button>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12,marginBottom:18}}>
         <Metric label="Forecast year" value={forecasts.length ? String(forecasts[0].forecast_year ?? '—') : '—'} detail="Existing stored prediction"/>
@@ -300,6 +338,52 @@ export default function DashboardSections({section}:{section:string}) {
         </table></div> : <p>No stored forecast is available for this crop.</p>}
         <p style={{color:'#f3bd70',fontSize:12,marginBottom:0}}>Important: the current dataset contains a 2025 forecast trained on observations through 2024. It is historical output, not a prediction for 2026 or later.</p>
       </Panel>
+
+      {experimentalError && <div role="alert" style={{padding:14,border:'1px solid #a85454',background:'#301e22',borderRadius:10,color:'#ffc6c6',marginTop:16}}>
+        Experimental prediction failed: {experimentalError}
+      </div>}
+
+      {experimentalForecast && <div style={{marginTop:16}}>
+        <Panel title="Experimental ML prediction">
+          <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center',marginBottom:16}}>
+            <span style={{color:'#77edb5',fontSize:12,fontWeight:700}}>EXPERIMENTAL MODEL</span>
+            <span style={{color:'#9aaca8',fontSize:12}}>{experimentalForecast.model}</span>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12}}>
+            <Metric
+              label={`${experimentalForecast.target_year} predicted production`}
+              value={number(experimentalForecast.predicted_production,0)}
+              detail={experimentalForecast.unit || 'tonnes'}
+            />
+            <Metric
+              label="Training cutoff"
+              value={String(experimentalForecast.training_through_year)}
+              detail="Latest observed year used"
+            />
+            <Metric
+              label="Training samples"
+              value={number(experimentalForecast.training_samples,0)}
+              detail="Supervised samples"
+            />
+          </div>
+          <p style={{color:'#f3bd70',fontSize:12,marginTop:16,marginBottom:0}}>
+            {experimentalForecast.warning} This model did not outperform the naive baseline
+            on median crop MAE in the 2023–2024 holdout evaluation. Treat this result as
+            experimental, not an official forecast.
+          </p>
+          <button
+            onClick={()=>download(
+              `${crop.toLowerCase().replace(/[^a-z0-9]+/g,'-')}-experimental-forecast.json`,
+              JSON.stringify(experimentalForecast,null,2),
+              'application/json'
+            )}
+            style={{...selectStyle,marginTop:14}}
+          >
+            <Download size={14} style={{verticalAlign:'middle',marginRight:7}}/>
+            Download experimental result
+          </button>
+        </Panel>
+      </div>}
     </>}
 
     {section==='Crop Suitability' && <>

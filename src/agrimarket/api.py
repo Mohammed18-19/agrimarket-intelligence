@@ -12,6 +12,12 @@ import pandas as pd
 from flask import Flask, Response, jsonify, request, stream_with_context
 
 from agrimarket.analytics.production import calculate_production_trends
+from agrimarket.analytics.pooled_regression import (
+    build_features_for_next_year,
+    build_supervised_dataset,
+    predict_pooled_regressor,
+    train_pooled_regressor,
+)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
@@ -214,6 +220,61 @@ def create_app(
             "forecasts": json_records(selected),
         })
 
+
+
+    @app.post("/api/crops/<path:crop>/experimental-forecast")
+    def experimental_crop_forecast(crop):
+        """Generate an experimental next-year pooled Random Forest forecast."""
+        try:
+            df = load_production()
+        except FileNotFoundError as exc:
+            return jsonify({"error": str(exc)}), 503
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        history = df.loc[df["Item"] == crop].sort_values("Year")
+
+        if history.empty:
+            return jsonify({"error": f"Crop not found: {crop}"}), 404
+
+        latest_year = int(history["Year"].max())
+        target_year = latest_year + 1
+
+        try:
+            eligible = df.groupby("Item")["Year"].transform("count") >= 4
+            training_df = df.loc[eligible].copy()
+            supervised = build_supervised_dataset(training_df)
+            model = train_pooled_regressor(
+                supervised,
+                train_through_year=latest_year,
+            )
+            features = build_features_for_next_year(
+                history,
+                crop,
+                target_year,
+            )
+            prediction = float(
+                predict_pooled_regressor(model, features)[0]
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 422
+
+        return jsonify({
+            "crop": crop,
+            "target_year": target_year,
+            "predicted_production": prediction,
+            "unit": str(history["Unit"].iloc[-1]),
+            "model": "pooled_random_forest",
+            "experimental": True,
+            "training_through_year": latest_year,
+            "training_samples": len(
+                supervised[supervised["year"] <= latest_year]
+            ),
+            "features": features.to_dict(orient="records")[0],
+            "warning": (
+                "Experimental model output, not an official production forecast."
+            ),
+        }), 200
 
     @app.get("/api/climate")
     def climate():
