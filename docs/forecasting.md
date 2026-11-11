@@ -39,6 +39,27 @@ Evaluate forecasting methods:
 
 `PYTHONPATH=src:. python scripts/validate_forecasting.py`
 
+Evaluate one method with the experiment framework. The default run scores the
+validation years (2019-2022) and never reads the final two years:
+
+`pip install -e ".[experiments]"`
+
+`python scripts/evaluate_yearly.py`
+
+Score the reserved holdout (2023-2024) once, for a method that is already
+chosen:
+
+`python scripts/evaluate_yearly.py --final-test`
+
+The method is set in `YearlyModel` in `src/agrimarket/evaluation/models.py`
+(`naive` by default; use `YearlyModel(method="linear_trend")` for the other).
+It reproduces the naive and linear-trend holdout medians in the table above.
+It evaluates one method per run, so it does not reproduce the "Selected
+method" row. Results go to `experiment_runs/` and a local MLflow database,
+both Git-ignored. See
+[ml_model_evaluation/experiment_framework.md](ml_model_evaluation/experiment_framework.md)
+for details, including annual producer price evaluation.
+
 Generate next-year forecasts:
 
 `PYTHONPATH=src:. python scripts/generate_forecasts.py`
