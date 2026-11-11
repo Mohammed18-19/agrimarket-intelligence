@@ -1,0 +1,8 @@
+evaluation_design,status,minimum_observations,eligible_crops,excluded_crops,note
+forecasting.evaluate_forecast(test_size=2),implemented,6,92,0,2 one-step test years
+forecasting.select_best_method(selection_test_size=2),implemented,6,92,0,2 selection years from one fixed origin
+scripts/generate_forecasts.py,implemented,6,92,0,"selection on last 2 years, refit on all years"
+scripts/evaluate_forecasting.py,implemented,5,92,0,up to 5 one-step test years
+scripts/validate_forecasting.py,implemented,8,92,0,2 selection years + 2 holdout years
+"rolling origin, 3 selection + 3 holdout years",hypothetical,10,92,0,4 training years at first origin
+"rolling origin, 5 training + 3 selection + 3 holdout years",hypothetical,11,0,92,requires 11 annual observations

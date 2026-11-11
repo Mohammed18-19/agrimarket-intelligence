@@ -1,0 +1,16 @@
+column,dtype,non_null,missing,missing_pct,unique,example
+Domain Code,str,920,0,0.0000,1,QCL
+Domain,str,920,0,0.0000,1,Crops and livestock products
+Area Code (M49),int64,920,0,0.0000,1,504
+Area,str,920,0,0.0000,1,Morocco
+Element Code,int64,920,0,0.0000,1,5510
+Element,str,920,0,0.0000,1,Production
+Item Code (CPC),float64,920,0,0.0000,92,1371.0
+Item,str,920,0,0.0000,92,"Almonds, in shell"
+Year Code,int64,920,0,0.0000,10,2015
+Year,int64,920,0,0.0000,10,2015
+Unit,str,920,0,0.0000,1,t
+Value,float64,920,0,0.0000,886,97722.96
+Flag,str,920,0,0.0000,4,A
+Flag Description,str,920,0,0.0000,4,Official value
+Note,str,12,908,98.7000,1,Unofficial figure

@@ -1,0 +1,2 @@
+rows,locations,first_year,last_year,missing_values,location_years_expected,used_by_forecasting
+300,30,2015,2024,0,300,no
