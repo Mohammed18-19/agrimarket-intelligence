@@ -5,7 +5,7 @@ that follow; changes should be recorded here.
 
 | Phase | Title | Status |
 |---|---|---|
-| 1 | [Dataset EDA and existing evaluation audit](#phase-1-dataset-eda-and-existing-evaluation-audit) | In progress |
+| 1 | [Dataset EDA and existing evaluation audit](#phase-1-dataset-eda-and-existing-evaluation-audit) | Not part of this change |
 | 2 | [Evaluation protocol design](#phase-2-evaluation-protocol-design) | Planned |
 | 3 | [Unified evaluation implementation](#phase-3-unified-evaluation-implementation) | Early implementation |
 | 4 | [Experiment reporting and reproducibility](#phase-4-experiment-reporting-and-reproducibility) | Early implementation |
@@ -18,16 +18,18 @@ Phases 3 to 6 at once, before the Phase 2 specification exists. See
 [experiment_framework.md](experiment_framework.md). Its rules (windows,
 minimum history, holdout size) are provisional and Phase 2 may change them.
 It does not change the existing evaluation scripts, `select_best_method` or
-`generate_forecasts.py`. The framework deliberately uses plain Python constants and model classes instead of the configuration
-files and configuration entries mentioned under Phases 4 and 5. Each phase
+`generate_forecasts.py`. The framework deliberately uses plain Python
+constants and model classes instead of the configuration files and
+configuration entries mentioned under Phases 4 and 5. Each phase
 below notes what exists and what is still open.
 
 ---
 
 ## Phase 1: Dataset EDA and existing evaluation audit
 
-**Status:** In progress. The analysis is complete and under review;
-see [EDA_yearly/](EDA_yearly/README.md).
+**Status:** Not part of this change. No EDA or audit material is included
+here; the objective and tasks below are kept so the later phases still read
+in order.
 
 **Objective:** Understand the forecasting data, models, preprocessing, and
 current evaluation methodology.
@@ -46,8 +48,8 @@ series length, scale, or what the published metrics mean.
 - Assess the feasibility of different model families.
 - Document findings and recommendations.
 
-**Deliverables:** EDA and audit scripts, figures, dataset analysis, code
-audit, prioritised recommendations.
+**Deliverables:** dataset analysis, code audit, prioritised
+recommendations.
 
 **Depends on:** nothing.
 
@@ -63,9 +65,9 @@ recommendations have been reviewed.
 
 **Objective:** Define a sound, consistent forecasting evaluation method.
 
-**Motivation:** Phase 1 found four scoring procedures that disagree,
-selection scored differently from testing, and pooled metrics dominated by
-scale and data provenance.
+**Motivation:** The existing scripts score forecasts with different splits,
+horizons and metrics, selection is scored differently from testing, and
+pooled metrics are dominated by scale and data provenance.
 
 **Key tasks**
 
@@ -81,12 +83,11 @@ scale and data provenance.
 **Deliverables:** evaluation specification, metric definitions, benchmark
 rules, and requirements for the Phase 3 implementation.
 
-**Depends on:** Phase 1, in particular the open questions in
-[findings_and_recommendations.md](EDA_yearly/findings_and_recommendations.md#answers-to-the-phase-1-questions).
+**Depends on:** Phase 1.
 
 **Done when:** a contributor could implement the evaluation engine from the
-specification alone, and every P0 recommendation is accepted, changed, or
-rejected with a reason.
+specification alone, and every open design question above is decided with
+a reason.
 
 ---
 
@@ -165,16 +166,16 @@ re-running a manifest reproduces it within a stated tolerance.
 **Status:** Early implementation. `models.py` has two classes, `YearlyModel`
 (production) and `YearlyPriceModel` (annual producer price, with `naive` and
 `drift`), each with `fit`, `predict`, `get_params` and `describe`, edited by
-hand. `YearlyModel` wraps the existing baselines. A model for another frequency is added as another
-plain class when data for it exists. Still open: further baselines (drift and others from Phase 1), hyperparameter
-search, and a decision on whether a registry is ever needed.
+hand. `YearlyModel` wraps the existing baselines. A model for another frequency
+is added as another plain class when data for it exists. Still open: further
+baselines, hyperparameter search, and a decision on whether a registry is
+ever needed.
 
 **Objective:** Let new models be added and compared without changing
 evaluation code.
 
-**Motivation:** Phase 1 identified feasible next model families (drift,
-damped exponential smoothing, pooled models) that should share one
-evaluation path.
+**Motivation:** Feasible next model families (drift, damped exponential
+smoothing, pooled models) should share one evaluation path.
 
 **Key tasks**
 

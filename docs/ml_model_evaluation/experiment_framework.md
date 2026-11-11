@@ -268,8 +268,9 @@ Formulas are defined once, at the top of `evaluation.py`.
 reports the share of entities below 1. If the data has a `group` column the
 same statistics are repeated for each group. For yearly data the group is
 the FAOSTAT provenance of the crop: `official` (every value flagged A),
-`no_official`, or `mixed`. Phase 1 showed that the 32 `no_official` crops are
-nearly smooth series that make pooled results look better than they are.
+`no_official`, or `mixed`. The 32 `no_official` crops have only estimated
+values and are noticeably smoother than the officially reported ones, so a
+pooled result can look better than it is.
 The per-observation FAOSTAT `flag` is also kept in `predictions.csv`.
 
 ## What is saved and where
@@ -335,17 +336,15 @@ comparable in MLflow.
 - Only yearly evaluation has real data. Daily, weekly and monthly support in
   the engine has only been tested on synthetic data and no result exists
   for those frequencies.
-- The framework implements part of the Phase 1
-  [recommendations](EDA_yearly/findings_and_recommendations.md):
-  one-step evaluation with refitting (P0-1), a holdout that validation never
-  reads (P0-2), MASE (P0-4), results by provenance (P0-5), exclusion reasons
-  and undefined-MASE reporting (parts of P1-4 and P1-5), and a reproducibility
-  record (part of P1-8; it has no list of eligible crops or method list).
-  Not done: rolling-origin model selection (P0-3), relabelling of the
-  published scores (P0-6), the drift baseline, win rate and uncertainty
-  intervals (P1-1 to P1-3). The formal protocol decisions of Phase 2 are
-  still open, and the settings here are provisional. The yearly validation
-  window has only four scored years per crop.
+- Implemented: one-step evaluation with refitting, a holdout that validation
+  never reads, MASE, results by provenance, exclusion reasons, undefined-MASE
+  reporting, and a reproducibility record (dataset hash, git commit --trailer "Co-authored-by: Cursor <cursoragent@cursor.com>", model
+  source; there is no list of eligible crops or methods).
+  Not done: rolling-origin model selection, win rate against a baseline and
+  uncertainty intervals. The formal protocol decisions of Phase 2 in the
+  [roadmap](roadmap.md) are still open, and the settings here are
+  provisional. The yearly validation window has only four scored years per
+  crop.
 - It evaluates one model per run. After validation runs are compared and the
   final holdout is scored once, production adoption is a separate reviewed
   code change to `scripts/generate_forecasts.py`. MLflow does not deploy a

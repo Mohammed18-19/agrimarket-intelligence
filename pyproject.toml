@@ -25,9 +25,6 @@ dependencies = [
 dev = [
     "pytest",
 ]
-eda = [
-    "matplotlib>=3.8",
-]
 experiments = [
     "mlflow>=3.18,<4.0",
     "matplotlib>=3.8",
