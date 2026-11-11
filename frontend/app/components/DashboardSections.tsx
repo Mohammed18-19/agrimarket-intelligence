@@ -327,8 +327,7 @@ export default function DashboardSections({section}:{section:string}) {
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:12,marginBottom:18}}>
         <Metric label="Forecast year" value={forecasts.length ? String(forecasts[0].forecast_year ?? '—') : '—'} detail="Existing stored prediction"/>
-        <Metric label="Selected method" value={String(forecasts[0]?.selected_method ?? '—')} detail="Method selected by existing evaluation"/>
-        <Metric label="Validation MAE" value={number(forecasts[0]?.validation_mae,0)} detail={forecasts[0]?.unit || 'source units'}/>
+        <Metric label="Production model" value={String(forecasts[0]?.model_version ?? '—')} detail={String(forecasts[0]?.method ?? 'Method not specified')}/>
         <Metric label="Training period" value={forecasts.length ? `${forecasts[0].training_start_year}–${forecasts[0].training_end_year}` : '—'} detail="Years used for training"/>
       </div>
       <Panel title="Stored forecast details">
@@ -466,9 +465,9 @@ export default function DashboardSections({section}:{section:string}) {
         </Panel>
         <Panel title="Forecasting artifacts">
           <BarChart3 color="#70e5ad" size={24}/>
-          <p style={{color:'#9aaca8'}}>Stored forecast values and validation metadata from the project's existing forecasting pipeline.</p>
+          <p style={{color:'#9aaca8'}}>Stored forecast values and production-model metadata from the project's forecasting pipeline.</p>
           <Metric label="Selected crop forecast rows" value={String(forecasts.length)} detail="Not necessarily a current-year forecast"/>
-          <p style={{fontSize:12,color:'#f3bd70'}}>Check forecast year and validation method before citing predictions.</p>
+          <p style={{fontSize:12,color:'#f3bd70'}}>Check the forecast year, method and model version before citing predictions.</p>
         </Panel>
       </div>
       <Panel title="Data-quality notes">

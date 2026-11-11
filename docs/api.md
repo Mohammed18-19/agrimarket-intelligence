@@ -54,7 +54,9 @@ GET /api/crops/<crop>/forecast
 
     curl http://127.0.0.1:5000/api/crops/Wheat/forecast
 
-Returns saved forecast records and available model metadata.
+Returns saved forecast records and model metadata. Each record includes the
+explicit production `method` and `model_version`; these are reviewed choices,
+not a model selected independently for that crop.
 
 **Important:** Forecasts are model estimates, not observed production figures.
 

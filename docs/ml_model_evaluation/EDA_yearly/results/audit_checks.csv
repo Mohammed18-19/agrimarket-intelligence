@@ -1,0 +1,54 @@
+check,value,detail
+regenerated_forecasts.committed_rows,92,scripts/generate_forecasts.py vs committed data/processed/crop_production_forecasts.csv
+regenerated_forecasts.regenerated_rows,92,scripts/generate_forecasts.py vs committed data/processed/crop_production_forecasts.csv
+regenerated_forecasts.matched_rows,92,scripts/generate_forecasts.py vs committed data/processed/crop_production_forecasts.csv
+regenerated_forecasts.same_columns,True,scripts/generate_forecasts.py vs committed data/processed/crop_production_forecasts.csv
+regenerated_forecasts.selected_method_agreement,1.0,scripts/generate_forecasts.py vs committed data/processed/crop_production_forecasts.csv
+regenerated_forecasts.max_abs_numeric_difference,0.0,scripts/generate_forecasts.py vs committed data/processed/crop_production_forecasts.csv
+holdout_median_mae.naive,4171.38,"docs/forecasting.md: 4,171.38"
+holdout_median_rmse.naive,4831.67,"docs/forecasting.md: 4,831.67"
+holdout_matches_docs.naive,True,
+holdout_median_mae.linear_trend,7701.79,"docs/forecasting.md: 7,701.79"
+holdout_median_rmse.linear_trend,8463.84,"docs/forecasting.md: 8,463.84"
+holdout_matches_docs.linear_trend,True,
+holdout_median_mae.selected,6319.88,"docs/forecasting.md: 6,319.88"
+holdout_median_rmse.selected,6903.6,"docs/forecasting.md: 6,903.60"
+holdout_matches_docs.selected,True,
+library_vs_holdout_naive_max_abs_diff,0.0,"evaluate_forecast(test_size=2) vs validate_forecasting.py, same years"
+library_vs_holdout_linear_trend_max_abs_diff,0.0,"evaluate_forecast(test_size=2) vs validate_forecasting.py, same years"
+fixed_origin_vs_one_step_linear_trend_crops_differing,90,select_best_method scores from one origin; evaluate_forecast refits each year
+fixed_origin_vs_one_step_naive_crops_differing,89,same comparison for the naive method
+backtest_test_observations,5,"scripts/evaluate_forecasting.py, per crop"
+backtest_median_mae.naive,6424.92,
+backtest_median_mae.linear_trend,8004.79,
+backtest_median_mae.best_method_on_test_years,6368.25,winner picked on the reported years (forecast_model_comparison.csv)
+holdout_median_mae.oracle_best_of_two,4034.31,lower bound if the winner were picked on the holdout years
+holdout_selection_matches_holdout_winner,0.6413,share of crops where the method chosen on 2021-2022 also wins 2023-2024
+published_method_matches_backtest_best_method,0.7065,generate_forecasts.py choice vs evaluate_forecasting.py best_method
+published_validation_mae_equals_holdout_selection_mae,False,different windows: 2023-2024 vs 2021-2022
+selection_counts.holdout_selection.naive,57,
+selection_counts.published.naive,63,
+holdout_wins.naive,62,
+selection_counts.holdout_selection.linear_trend,35,
+selection_counts.published.linear_trend,29,
+holdout_wins.linear_trend,30,
+holdout_median_mae_pct_of_level.naive,9.99,"MAE divided by mean actual production in 2023-2024, per crop"
+holdout_median_mae_pct_of_level.linear_trend,14.1,"MAE divided by mean actual production in 2023-2024, per crop"
+holdout_median_mae_pct_of_level.selected,13.56,"MAE divided by mean actual production in 2023-2024, per crop"
+naive_holdout_mae_share_top5_crops,0.631,Wheat;Barley;Olives;Sugar beet;Oranges
+provenance_crops.mixed,3,official = every value flagged A; none = no value flagged A
+holdout_median_mae_pct_of_level.naive.mixed,17.89,
+holdout_median_mae_pct_of_level.linear_trend.mixed,26.16,
+holdout_median_mae_pct_of_level.selected.mixed,17.89,
+holdout_wins.linear_trend.mixed,2,
+provenance_crops.none,32,official = every value flagged A; none = no value flagged A
+holdout_median_mae_pct_of_level.naive.none,0.28,
+holdout_median_mae_pct_of_level.linear_trend.none,1.32,
+holdout_median_mae_pct_of_level.selected.none,0.26,
+holdout_wins.linear_trend.none,5,
+provenance_crops.official,57,official = every value flagged A; none = no value flagged A
+holdout_median_mae_pct_of_level.naive.official,23.22,
+holdout_median_mae_pct_of_level.linear_trend.official,26.37,
+holdout_median_mae_pct_of_level.selected.official,23.22,
+holdout_wins.linear_trend.official,23,
+files_written_by_existing_scripts,crop_production_forecasts.csv;faostat_morocco_production.csv;forecast_evaluation.csv;forecast_holdout_evaluation.csv;forecast_holdout_summary.csv;forecast_model_comparison.csv,inside the temporary data/processed directory

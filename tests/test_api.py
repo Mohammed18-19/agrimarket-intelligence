@@ -21,7 +21,8 @@ def api_client(tmp_path):
             "crop": "Wheat",
             "forecast_year": 2025,
             "predicted_production": 95.0,
-            "selected_method": "naive",
+            "method": "naive",
+            "model_version": "naive-v1",
         }
     ]).to_csv(forecast_path, index=False)
 

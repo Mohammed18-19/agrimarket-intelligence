@@ -1,0 +1,2 @@
+metric,value,detail
+raw_file_available,no,data/raw/faostat_morocco_crops.csv is not in this checkout

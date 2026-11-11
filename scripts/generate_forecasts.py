@@ -4,13 +4,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from agrimarket.analytics.forecasting import (
-    forecast_production,
-    select_best_method,
-)
+from agrimarket.analytics.forecasting import forecast_production
 
 DATA_PATH = Path("data/processed/faostat_morocco_production.csv")
 OUTPUT_PATH = Path("data/processed/crop_production_forecasts.csv")
+
+# Reviewed production choice. Candidate models are compared separately with
+# scripts/evaluate_yearly.py and MLflow. Changing production requires an
+# explicit, version-controlled edit here.
+PRODUCTION_METHOD = "naive"
+PRODUCTION_MODEL_VERSION = "naive-v1"
 
 
 def main():
@@ -25,19 +28,13 @@ def main():
         series = series.dropna().sort_values("Year").reset_index(drop=True)
 
         try:
-            selection = select_best_method(
-                series,
-                crop,
-                selection_test_size=2,
-            )
-
             target_year = int(series["Year"].max()) + 1
 
             forecast = forecast_production(
                 series,
                 crop=crop,
                 target_year=target_year,
-                method=selection["best_method"],
+                method=PRODUCTION_METHOD,
             )
 
             results.append({
@@ -45,10 +42,8 @@ def main():
                 "forecast_year": target_year,
                 "predicted_production": forecast["predicted_production"],
                 "unit": forecast["unit"],
-                "selected_method": selection["best_method"],
-                "validation_mae": selection["validation_mae"],
-                "validation_start_year": selection["validation_start_year"],
-                "validation_end_year": selection["validation_end_year"],
+                "method": PRODUCTION_METHOD,
+                "model_version": PRODUCTION_MODEL_VERSION,
                 "training_start_year": forecast["training_start_year"],
                 "training_end_year": forecast["training_end_year"],
                 "training_observations": forecast["training_observations"],
@@ -68,8 +63,7 @@ def main():
     print(f"Crops excluded: {len(excluded)}")
     print("\nForecast years:")
     print(report["forecast_year"].value_counts().sort_index().to_string())
-    print("\nSelected methods:")
-    print(report["selected_method"].value_counts().to_string())
+    print(f"\nProduction model: {PRODUCTION_MODEL_VERSION} ({PRODUCTION_METHOD})")
     print(f"\nSaved: {OUTPUT_PATH}")
 
     if excluded:

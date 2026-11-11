@@ -340,85 +340,20 @@ def summarize_evidence(question: str, evidence: dict, *, _allow_llm: bool = True
 
     forecast = evidence.get("forecasting", {})
     if forecast.get("status") == "ok":
-        lines.extend(["", f"## Forecast and model evaluation: {crop_name}"])
+        lines.extend(["", f"## Forecast: {crop_name}"])
         records = forecast.get("records", [])
         for record in records:
             year = record.get("forecast_year", record.get("Year"))
             value = record.get("predicted_production", record.get("prediction"))
-            method = record.get("selected_method", record.get("method", "unspecified"))
+            method = record.get("method", "unspecified")
+            version = record.get("model_version")
             unit = record.get("unit", production.get("unit", ""))
             if value is not None:
+                model = f"{version} ({method})" if version else method
                 lines.append(
                     f"- Forecast for {year}: {float(value):,.2f} {unit}, "
-                    f"using {method}."
+                    f"using {model}."
                 )
-            if record.get("validation_mae") is not None:
-                lines.append(
-                    f"- Forecast validation MAE: "
-                    f"{float(record['validation_mae']):,.2f} {unit} "
-                    f"(validation period "
-                    f"{record.get('validation_start_year', '?')}–"
-                    f"{record.get('validation_end_year', '?')})."
-                )
-
-        evaluations = forecast.get("evaluation", [])
-        valid_errors = []
-        for item in evaluations:
-            method = item.get("method", "unspecified")
-            mae = item.get("MAE", item.get("mae"))
-            unit = item.get("unit", production.get("unit", ""))
-            if mae is not None:
-                mae = float(mae)
-                valid_errors.append((method, mae, unit))
-                lines.append(
-                    f"- Evaluation MAE — {method}: {mae:,.2f} {unit}; "
-                    f"{item.get('test_observations', '?')} test observations."
-                )
-
-        # The validation selection period and final holdout are different evaluations.
-        try:
-            holdout_path = DATA / "forecast_holdout_evaluation.csv"
-            if holdout_path.is_file():
-                holdout_df = pd.read_csv(holdout_path)
-                crop_col = holdout_df["crop"].astype(str).str.casefold()
-                matching = holdout_df.loc[crop_col == str(crop_name).casefold()]
-                if not matching.empty:
-                    h = matching.iloc[0]
-                    lines.append(
-                        "- Separate holdout evaluation: "
-                        f"{int(h['holdout_start_year'])}–{int(h['holdout_end_year'])}, "
-                        f"{int(h['holdout_observations'])} observations."
-                    )
-                    for key, label in (
-                        ("naive_holdout_mae", "naive"),
-                        ("linear_trend_holdout_mae", "linear_trend"),
-                        ("selected_holdout_mae", "selected method"),
-                    ):
-                        value = h.get(key)
-                        if pd.notna(value):
-                            lines.append(
-                                f"- Holdout MAE ({label}): {float(value):,.2f} "
-                                f"{h.get('unit', production.get('unit', ''))}."
-                            )
-        except (OSError, KeyError, ValueError, pd.errors.ParserError):
-            lines.append("- Separate holdout evaluation was unavailable.")
-
-        if len(valid_errors) >= 2:
-            best = min(valid_errors, key=lambda item: item[1])
-            worst = max(valid_errors, key=lambda item: item[1])
-            if worst[1] > 0:
-                improvement = (worst[1] - best[1]) / worst[1] * 100
-                lines.append(
-                    f"- Among the listed evaluations, {best[0]} has the lower "
-                    f"MAE, about {improvement:.1f}% lower than {worst[0]}. "
-                    "This comparison does not guarantee future accuracy."
-                )
-
-        lines.append(
-            "- Reliability limitation: MAE is the average absolute prediction "
-            "error on the stated evaluation data, not a confidence interval. "
-            "Errors can be large relative to actual production."
-        )
         lines.append(
             "- Forecasts are model outputs, not observed production or guaranteed outcomes."
         )

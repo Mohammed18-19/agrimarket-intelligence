@@ -118,8 +118,8 @@ def test_agent_stops_tool_calls_after_max_rounds():
 
 
 
-def test_forecast_metric_context_uses_evidence_and_discloses_unknown_years():
-    from agrimarket.ai.workflow import _format_forecast_metric_context
+def test_forecast_context_uses_production_model_metadata():
+    from agrimarket.ai.workflow import _format_forecast_context
 
     evidence = {
         "forecasting": {
@@ -128,37 +128,29 @@ def test_forecast_metric_context_uses_evidence_and_discloses_unknown_years():
             "records": [{
                 "crop": "Wheat",
                 "forecast_year": 2025,
-                "selected_method": "linear_trend",
-                "validation_mae": 677522.541964,
-                "validation_start_year": 2023,
-                "validation_end_year": 2024,
-                "unit": "t",
-            }],
-            "evaluation": [{
-                "method": "linear_trend",
-                "MAE": 2122436.841766858,
-                "test_observations": 5,
+                "predicted_production": 852161.35,
+                "method": "naive",
+                "model_version": "naive-v1",
+                "training_start_year": 2015,
+                "training_end_year": 2024,
                 "unit": "t",
             }],
         }
     }
 
-    result = _format_forecast_metric_context(evidence)
+    result = _format_forecast_context(evidence)
 
-    assert "677,522.54 t" in result
-    assert "validation period 2023–2024" in result
-    assert "2,122,436.84 t" in result
-    assert "5 test observations" in result
-    assert "do not specify the test years" in result
-    assert "overlap the validation period" in result
-    assert "independent observations" not in result
+    assert "852,161.35 t" in result
+    assert "naive-v1 (naive)" in result
+    assert "training period 2015–2024" in result
+    assert "validation" not in result.lower()
 
 
-def test_forecast_metric_context_is_empty_without_forecast_evidence():
-    from agrimarket.ai.workflow import _format_forecast_metric_context
+def test_forecast_context_is_empty_without_forecast_evidence():
+    from agrimarket.ai.workflow import _format_forecast_context
 
-    assert _format_forecast_metric_context({}) == ""
-    assert _format_forecast_metric_context({
+    assert _format_forecast_context({}) == ""
+    assert _format_forecast_context({
         "forecasting": {"status": "error"}
     }) == ""
 

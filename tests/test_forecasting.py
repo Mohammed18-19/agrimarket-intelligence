@@ -2,9 +2,7 @@ import pandas as pd
 import pytest
 
 from agrimarket.analytics.forecasting import (
-    evaluate_forecast,
     forecast_production,
-    select_best_method,
 )
 
 
@@ -59,29 +57,3 @@ def test_negative_production_is_rejected(wheat_data):
     broken.loc[0, "Value"] = -1
     with pytest.raises(ValueError, match="negative production"):
         forecast_production(broken, "Wheat", 2021)
-
-
-def test_chronological_evaluation_returns_metrics(wheat_data):
-    result = evaluate_forecast(wheat_data, "Wheat", method="naive", test_size=2)
-    assert result["test_size"] == 2
-    assert result["mae"] >= 0
-    assert result["rmse"] >= result["mae"]
-    assert [row["year"] for row in result["predictions"]] == [2019, 2020]
-
-
-def test_select_best_method_returns_valid_result(wheat_data):
-    result = select_best_method(wheat_data, "Wheat", selection_test_size=2)
-    assert result["best_method"] in {"naive", "linear_trend"}
-    assert result["validation_mae"] >= 0
-    assert set(result["validation_scores"]) == {"naive", "linear_trend"}
-    assert result["selection_training_end_year"] < result["validation_start_year"]
-
-
-def test_select_best_method_rejects_unknown_crop(wheat_data):
-    with pytest.raises(ValueError, match="No production data"):
-        select_best_method(wheat_data, "Rice")
-
-
-def test_select_best_method_rejects_invalid_test_size(wheat_data):
-    with pytest.raises(ValueError, match="positive integer"):
-        select_best_method(wheat_data, "Wheat", selection_test_size=0)

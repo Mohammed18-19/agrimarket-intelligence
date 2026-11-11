@@ -33,6 +33,13 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 
+# Local experiment tracking (MLflow database, artifacts, per-run outputs)
+mlflow.db
+mlflow.db-*
+mlruns/
+mlartifacts/
+experiment_runs/
+
 # Logs
 *.log
 

@@ -154,14 +154,12 @@ EVIDENCE RULES
 
 FORECAST METRIC RULES
 - A forecast is an estimate, never an observed value or guarantee.
-- validation_mae is the model-selection score for the period specified by
-  validation_start_year and validation_end_year.
-- An evaluation entry's MAE is a separate metric associated with its
-  test_observations count. Never substitute one metric for the other.
-- Do not infer evaluation years, sample independence, or overlap from the
-  observation count alone. State when these details are unavailable.
-- Include the method, unit, and evaluation period whenever the evidence
-  supplies them and they are relevant to the question.
+- The production method and model version are explicit reviewed choices,
+  not evidence that the model is accurate for a particular crop.
+- Do not invent validation or holdout metrics when the retrieved forecast
+  record does not contain them.
+- Include the method, model version, training period, and unit whenever the
+  evidence supplies them and they are relevant to the question.
 
 ANSWER QUALITY
 - Answer the user's actual question directly.
@@ -373,8 +371,8 @@ def _after_model(state: WorkflowState) -> str:
     return "agent_finalize"
 
 
-def _format_forecast_metric_context(evidence: dict) -> str:
-    """Format forecast metrics directly from retrieved evidence."""
+def _format_forecast_context(evidence: dict) -> str:
+    """Format forecast model details directly from retrieved evidence."""
     forecast = evidence.get("forecasting", {})
     if not isinstance(forecast, dict) or forecast.get("status") != "ok":
         return ""
@@ -382,51 +380,29 @@ def _format_forecast_metric_context(evidence: dict) -> str:
     lines = [
         "",
         "",
-        "### Verified forecast metric context",
-        "The following figures are copied from the retrieved project evidence.",
+        "### Verified forecast context",
+        "The following details are copied from the retrieved project evidence.",
     ]
 
     for record in forecast.get("records", []):
         if not isinstance(record, dict):
             continue
-        mae = record.get("validation_mae")
-        if mae is None:
-            continue
         crop = record.get("crop", forecast.get("crop", "Selected crop"))
         year = record.get("forecast_year", "unspecified")
         unit = record.get("unit", "")
-        method = record.get("selected_method", "unspecified")
-        start = record.get("validation_start_year")
-        end = record.get("validation_end_year")
+        method = record.get("method", "unspecified")
+        version = record.get("model_version", "unspecified")
+        start = record.get("training_start_year")
+        end = record.get("training_end_year")
         period = f"{start}–{end}" if start is not None and end is not None else "not specified"
-        lines.append(
-            f"- {crop} forecast for {year}: validation MAE "
-            f"{float(mae):,.2f} {unit}; validation period {period}; "
-            f"selected method {method}."
+        value = record.get("predicted_production", record.get("prediction"))
+        prediction = (
+            f"{float(value):,.2f} {unit}" if value is not None
+            else "not specified"
         )
-
-    evaluations = [
-        item for item in forecast.get("evaluation", [])
-        if isinstance(item, dict) and item.get("MAE", item.get("mae")) is not None
-    ]
-    if evaluations:
         lines.append(
-            "- Separate evaluation metrics (not interchangeable with the "
-            "forecast record's validation MAE):"
-        )
-        for item in evaluations:
-            method = item.get("method", "unspecified")
-            mae = float(item.get("MAE", item.get("mae")))
-            unit = item.get("unit", "")
-            count = item.get("test_observations", "unspecified")
-            lines.append(
-                f"  - {method}: MAE {mae:,.2f} {unit}; "
-                f"{count} test observations."
-            )
-        lines.append(
-            "- The available evaluation entries do not specify the test years "
-            "or establish whether those observations overlap the validation "
-            "period. Do not claim otherwise."
+            f"- {crop} forecast for {year}: {prediction}; production model "
+            f"{version} ({method}); training period {period}."
         )
 
     if len(lines) == 4:
@@ -776,7 +752,7 @@ def _finalize_agent_turn(state: WorkflowState) -> dict:
             "records; the explanation was replaced with evidence-based figures."
         ]
 
-    analysis += _format_forecast_metric_context(evidence)
+    analysis += _format_forecast_context(evidence)
 
     return {
         "evidence": evidence,

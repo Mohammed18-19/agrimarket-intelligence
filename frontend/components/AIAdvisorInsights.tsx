@@ -66,8 +66,8 @@ function findSeries(evidence: AnyRecord) {
   });
 
   const errors = all.flatMap((row) => {
-    const method = row.method ?? row.selected_method;
-    const mae = numberFrom(row, ['MAE', 'mae', 'validation_mae']);
+    const method = row.method;
+    const mae = numberFrom(row, ['MAE', 'mae']);
     if (typeof method !== 'string' || mae === null) return [];
     return [{ method, mae }];
   });

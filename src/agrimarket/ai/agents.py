@@ -217,21 +217,10 @@ def forecasting_agent(crop: str | None = None) -> dict:
         "status": "ok",
         "crop": crop,
         "records": _records(forecasts),
-        "evaluation": [],
         "limitations": (
             "Forecasts are model outputs, not guaranteed future production."
         ),
     }
-
-    evaluation_path = _data_path("forecast_evaluation.csv")
-    if evaluation_path.is_file():
-        evaluation = pd.read_csv(evaluation_path)
-        if crop and "crop" in evaluation.columns:
-            evaluation = evaluation[
-                evaluation["crop"].astype(str).str.casefold()
-                == crop.casefold()
-            ]
-        result["evaluation"] = _records(evaluation)
 
     return result
 
