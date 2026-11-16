@@ -65,10 +65,33 @@ def api_client(tmp_path):
         },
     ]).to_csv(climate_path, index=False)
 
+    evaluation_path = tmp_path / "evaluation.csv"
+    pd.DataFrame([
+        {
+            "method": "naive",
+            "median_crop_mae": 5.0,
+            "median_crop_wape_pct": 10.0,
+            "eligible_crop_count": 1,
+            "holdout_years": "2023,2024",
+        }
+    ]).to_csv(evaluation_path, index=False)
+    crop_metrics_path = tmp_path / "crop_metrics.csv"
+    pd.DataFrame([
+        {
+            "crop": "Wheat",
+            "method": "naive",
+            "mae": 5.0,
+            "rmse": 6.0,
+            "wape_pct": 10.0,
+        }
+    ]).to_csv(crop_metrics_path, index=False)
+
     app = create_app(
         production_path=production_path,
         forecast_path=forecast_path,
         climate_path=climate_path,
+        forecast_evaluation_path=evaluation_path,
+        forecast_crop_metrics_path=crop_metrics_path,
     )
     app.config["TESTING"] = True
 
@@ -122,6 +145,24 @@ def test_crop_forecast_returns_matching_forecast(api_client):
     assert response.json["count"] == 1
     assert response.json["forecasts"][0]["forecast_year"] == 2025
     assert response.json["forecasts"][0]["predicted_production"] == 95.0
+
+
+def test_forecast_evaluation_returns_method_summary(api_client):
+    response = api_client.get("/api/forecast-evaluation")
+
+    assert response.status_code == 200
+    assert response.json["count"] == 1
+    assert response.json["results"][0]["method"] == "naive"
+    assert response.json["results"][0]["median_crop_wape_pct"] == 10.0
+
+
+def test_forecast_crop_metrics_download_returns_csv(api_client):
+    response = api_client.get("/api/forecast-evaluation/crops.csv")
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/csv"
+    assert "crop_metrics.csv" in response.headers["Content-Disposition"]
+    assert b"Wheat,naive" in response.data
 
 
 def test_unknown_crop_history_returns_404(api_client):

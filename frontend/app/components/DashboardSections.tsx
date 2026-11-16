@@ -101,6 +101,7 @@ export default function DashboardSections({section}:{section:string}) {
   const [history,setHistory] = useState<RecordData[]>([]);
   const [summary,setSummary] = useState<RecordData>({});
   const [forecasts,setForecasts] = useState<RecordData[]>([]);
+  const [forecastEvaluation,setForecastEvaluation] = useState<RecordData[]>([]);
   const [experimentalForecast,setExperimentalForecast] = useState<RecordData|null>(null);
   const [experimentalLoading,setExperimentalLoading] = useState(false);
   const [experimentalError,setExperimentalError] = useState('');
@@ -121,12 +122,13 @@ export default function DashboardSections({section}:{section:string}) {
         if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
         return response.json();
       };
-      const [cropData,historyData,summaryData,forecastData,climateData] = await Promise.all([
+      const [cropData,historyData,summaryData,forecastData,climateData,evaluationData] = await Promise.all([
         get('/api/crops'),
         get(`/api/crops/${encodeURIComponent(crop)}/history`),
         get(`/api/crops/${encodeURIComponent(crop)}/summary`),
         get(`/api/crops/${encodeURIComponent(crop)}/forecast`),
-        get('/api/climate')
+        get('/api/climate'),
+        get('/api/forecast-evaluation')
       ]);
       setCrops(Array.isArray(cropData.crops) ? cropData.crops : []);
       setHistory(Array.isArray(historyData.history) ? historyData.history : []);
@@ -135,6 +137,7 @@ export default function DashboardSections({section}:{section:string}) {
       setClimate(Array.isArray(climateData.records) ? climateData.records : []);
       setLocations(Array.isArray(climateData.locations) ? climateData.locations : []);
       setYears(Array.isArray(climateData.years) ? climateData.years : []);
+      setForecastEvaluation(Array.isArray(evaluationData.results) ? evaluationData.results : []);
     } catch(e) {
       setError(e instanceof Error ? e.message : 'Failed to load dashboard data');
     } finally { setLoading(false); }
@@ -166,6 +169,17 @@ export default function DashboardSections({section}:{section:string}) {
     }
   }
 
+  async function downloadPerCropForecastMetrics() {
+    try {
+      const response = await fetch('/api/forecast-evaluation/crops.csv', {cache:'no-store'});
+      if (!response.ok) throw new Error(`Could not download crop metrics (HTTP ${response.status})`);
+      const contents = await response.text();
+      download('pooled-regression-crop-metrics.csv', contents, 'text/csv');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not download crop metrics');
+    }
+  }
+
   useEffect(() => { void load(); }, [crop]);
 
   const filteredClimate = useMemo(() => climate.filter(r =>
@@ -173,23 +187,35 @@ export default function DashboardSections({section}:{section:string}) {
     (year === 'All years' || String(r.year) === year)
   ), [climate, location, year]);
 
-  const climateByYear = useMemo(() => {
-    const grouped = new Map<number,{year:number;temperature:number;precipitation:number;count:number}>();
+  const climateByYear = useMemo(() => [...filteredClimate]
+    .filter(r => Number.isFinite(Number(r.year)))
+    .sort((a,b) => Number(a.year)-Number(b.year))
+    .map(r => ({
+      year:Number(r.year),
+      meanTemperature:Number.isFinite(Number(r.mean_temperature_c)) ? Number(r.mean_temperature_c) : null,
+      precipitation:Number.isFinite(Number(r.total_precipitation)) ? Number(r.total_precipitation) : null,
+    })), [filteredClimate]);
+
+  const climateByLocation = useMemo(() => {
+    const grouped = new Map<string, {temperature:number[]; precipitation:number[]}>();
     filteredClimate.forEach(r => {
-      if (!Number.isFinite(Number(r.year))) return;
-      const item = grouped.get(Number(r.year)) || {year:Number(r.year),temperature:0,precipitation:0,count:0};
-      const t = Number(r.mean_temperature_c);
-      const p = Number(r.total_precipitation);
-      if (Number.isFinite(t)) { item.temperature += t; item.count += 1; }
-      if (Number.isFinite(p)) item.precipitation += p;
-      grouped.set(Number(r.year),item);
+      const item = grouped.get(r.location) || {temperature:[], precipitation:[]};
+      const temperature = Number(r.mean_temperature_c);
+      const precipitation = Number(r.total_precipitation);
+      if (Number.isFinite(temperature)) item.temperature.push(temperature);
+      if (Number.isFinite(precipitation)) item.precipitation.push(precipitation);
+      grouped.set(r.location, item);
     });
-    return [...grouped.values()].sort((a,b)=>a.year-b.year).map(x => ({
-      year:x.year,
-      meanTemperature:x.count ? Number((x.temperature/x.count).toFixed(2)) : null,
-      precipitation:Number(x.precipitation.toFixed(1))
-    }));
+    return [...grouped.entries()].map(([location, values]) => ({
+      location,
+      meanTemperature:values.temperature.length
+        ? Number((values.temperature.reduce((a,b)=>a+b,0)/values.temperature.length).toFixed(2)) : null,
+      meanAnnualPrecipitation:values.precipitation.length
+        ? Number((values.precipitation.reduce((a,b)=>a+b,0)/values.precipitation.length).toFixed(1)) : null,
+      yearsObserved:Math.max(values.temperature.length, values.precipitation.length),
+    })).sort((a,b)=>a.location.localeCompare(b.location));
   }, [filteredClimate]);
+  const climateCompareHeight = Math.max(420, climateByLocation.length * 24);
 
   const points = useMemo(() => {
     const byLocation = new Map<string,ClimateRecord[]>();
@@ -220,9 +246,10 @@ export default function DashboardSections({section}:{section:string}) {
       productionHistory:history,
       forecast:forecasts,
       climate:filteredClimate,
+      climateUnits:{mean_temperature_c:'°C',total_precipitation:'mm per year'},
       limitations:[
         'Climate observations cover 2015–2024 in the available annual dataset.',
-        'The available crop forecast is for 2025; it is historical, not a current forecast.',
+        'Stored crop forecasts target 2025 and are historical estimates, not current forecasts.',
         'Crop suitability indicators are exploratory and not validated agronomic recommendations.',
         'Globe coordinates are approximate city coordinates, not exact station coordinates.'
       ]
@@ -294,22 +321,22 @@ export default function DashboardSections({section}:{section:string}) {
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:12,marginBottom:18}}>
         <Metric label="Climate records" value={number(filteredClimate.length,0)} detail="After selected filters"/>
         <Metric label="Locations represented" value={String(new Set(filteredClimate.map(r=>r.location)).size)} detail="Annual city-level records"/>
-        <Metric label="Mean temperature" value={`${number(filteredClimate.length ? filteredClimate.reduce((a,r)=>a+(Number(r.mean_temperature_c)||0),0)/filteredClimate.filter(r=>Number.isFinite(Number(r.mean_temperature_c))).length : NaN)}°C`} detail="Mean of available annual values"/>
+        <Metric label="Mean temperature" value={`${number(filteredClimate.length ? filteredClimate.reduce((a,r)=>a+(Number(r.mean_temperature_c)||0),0)/Math.max(1,filteredClimate.filter(r=>Number.isFinite(Number(r.mean_temperature_c))).length) : NaN)}°C`} detail="Mean of available annual values"/>
         <Metric label="Observed period" value={years.length ? `${Math.min(...years)}–${Math.max(...years)}` : '—'} detail="Available climate dataset"/>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,400px),1fr))',gap:16}}>
-        <Panel title="Annual mean temperature (°C)">
-          <div style={{height:290}}><ResponsiveContainer width="100%" height="100%">
-            <LineChart data={climateByYear}><CartesianGrid stroke="#293c3c" strokeDasharray="3 3"/><XAxis dataKey="year" stroke="#8ca39c"/><YAxis stroke="#8ca39c"/><Tooltip contentStyle={{background:'#101b20',border:'1px solid #38504d'}}/><Line dataKey="meanTemperature" name="Mean temperature °C" stroke="#f3bd70" strokeWidth={2.5} connectNulls/></LineChart>
+        <Panel title={location === 'All locations' ? 'Mean annual temperature by location (°C)' : `Annual mean temperature — ${location} (°C)`}>
+          <div style={{height:location === 'All locations' ? climateCompareHeight : 290}}><ResponsiveContainer width="100%" height="100%">
+            {location === 'All locations' ? <BarChart data={climateByLocation} layout="vertical" margin={{left:12,right:20}}><CartesianGrid stroke="#293c3c" strokeDasharray="3 3"/><XAxis type="number" unit="°C" stroke="#8ca39c"/><YAxis type="category" dataKey="location" width={100} stroke="#8ca39c"/><Tooltip formatter={(v:any)=>[`${number(v,2)} °C`,'Mean temperature']} contentStyle={{background:'#101b20',border:'1px solid #38504d'}}/><Bar dataKey="meanTemperature" name="Mean annual temperature" fill="#f3bd70" radius={[0,4,4,0]}/></BarChart> : <LineChart data={climateByYear}><CartesianGrid stroke="#293c3c" strokeDasharray="3 3"/><XAxis dataKey="year" stroke="#8ca39c"/><YAxis unit="°C" stroke="#8ca39c"/><Tooltip formatter={(v:any)=>[`${number(v,2)} °C`,'Mean temperature']} contentStyle={{background:'#101b20',border:'1px solid #38504d'}}/><Line dataKey="meanTemperature" name="Mean annual temperature" stroke="#f3bd70" strokeWidth={2.5} connectNulls/></LineChart>}
           </ResponsiveContainer></div>
         </Panel>
-        <Panel title="Annual precipitation total (source units)">
-          <div style={{height:290}}><ResponsiveContainer width="100%" height="100%">
-            <BarChart data={climateByYear}><CartesianGrid stroke="#293c3c" strokeDasharray="3 3"/><XAxis dataKey="year" stroke="#8ca39c"/><YAxis stroke="#8ca39c"/><Tooltip contentStyle={{background:'#101b20',border:'1px solid #38504d'}}/><Bar dataKey="precipitation" name="Sum of location totals" fill="#62b8e5" radius={[4,4,0,0]}/></BarChart>
+        <Panel title={location === 'All locations' ? 'Mean annual precipitation by location (mm)' : `Annual precipitation — ${location} (mm)`}>
+          <div style={{height:location === 'All locations' ? climateCompareHeight : 290}}><ResponsiveContainer width="100%" height="100%">
+            {location === 'All locations' ? <BarChart data={climateByLocation} layout="vertical" margin={{left:12,right:20}}><CartesianGrid stroke="#293c3c" strokeDasharray="3 3"/><XAxis type="number" unit=" mm" stroke="#8ca39c"/><YAxis type="category" dataKey="location" width={100} stroke="#8ca39c"/><Tooltip formatter={(v:any)=>[`${number(v,1)} mm`,'Mean annual precipitation']} contentStyle={{background:'#101b20',border:'1px solid #38504d'}}/><Bar dataKey="meanAnnualPrecipitation" name="Mean annual precipitation" fill="#62b8e5" radius={[0,4,4,0]}/></BarChart> : <BarChart data={climateByYear}><CartesianGrid stroke="#293c3c" strokeDasharray="3 3"/><XAxis dataKey="year" stroke="#8ca39c"/><YAxis unit=" mm" stroke="#8ca39c"/><Tooltip formatter={(v:any)=>[`${number(v,1)} mm`,'Annual precipitation']} contentStyle={{background:'#101b20',border:'1px solid #38504d'}}/><Bar dataKey="precipitation" name="Annual precipitation" fill="#62b8e5" radius={[4,4,0,0]}/></BarChart>}
           </ResponsiveContainer></div>
         </Panel>
       </div>
-      <p style={{color:'#8da29c',fontSize:12,marginTop:14}}>Climate risk is not a single validated risk score. Precipitation aggregation depends on the source units and selected locations; compare like-for-like filters.</p>
+      <p style={{color:'#8da29c',fontSize:12,marginTop:14}}>{location === 'All locations' ? 'Location charts show each location’s mean of its available annual values over the selected years; locations are never summed. Select one location to view its year-by-year series.' : 'NASA POWER PRECTOTCORR is accumulated here as annual precipitation in millimeters. Values are annual summaries and do not show seasonal timing or extremes.'} Climate risk is not a single validated risk score.</p>
     </>}
 
     {section==='Forecasting' && <>
@@ -336,7 +363,30 @@ export default function DashboardSections({section}:{section:string}) {
           <thead><tr>{Object.keys(forecasts[0]).map(k=><th key={k} style={{textAlign:'left',padding:10,borderBottom:'1px solid #38504d',color:'#9aaca8'}}>{k.replaceAll('_',' ')}</th>)}</tr></thead>
           <tbody>{forecasts.map((row,i)=><tr key={i}>{Object.keys(forecasts[0]).map(k=><td key={k} style={{padding:10,borderBottom:'1px solid #26383a'}}>{String(row[k] ?? '—')}</td>)}</tr>)}</tbody>
         </table></div> : <p>No stored forecast is available for this crop.</p>}
-        <p style={{color:'#f3bd70',fontSize:12,marginBottom:0}}>Important: the current dataset contains a 2025 forecast trained on observations through 2024. It is historical output, not a prediction for 2026 or later.</p>
+        <p style={{color:'#f3bd70',fontSize:12,marginBottom:0}}>Historical estimate: stored forecasts target 2025 and were trained on observations through 2024. They are not current forecasts.</p>
+      </Panel>
+
+      <Panel title="Baseline and pooled model holdout comparison">
+        {forecastEvaluation.length ? <>
+          <p style={{color:'#9aaca8',fontSize:13,marginTop:0}}>
+            Shared holdout: {forecastEvaluation[0].holdout_years} · {forecastEvaluation[0].eligible_crop_count} eligible crops · two observations per crop. Lower is better. Median WAPE is normalized within each crop; median MAE is in mixed source units and should not be compared across crops.
+          </p>
+          <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead><tr>{['Method','Median crop MAE','Median crop WAPE','Unique crop wins'].map(label=><th key={label} style={{textAlign:'left',padding:10,borderBottom:'1px solid #38504d',color:'#9aaca8'}}>{label}</th>)}</tr></thead>
+            <tbody>{forecastEvaluation.map((row,i)=><tr key={row.method || i}>
+              <td style={{padding:10,borderBottom:'1px solid #26383a'}}>{String(row.method).replaceAll('_',' ')}</td>
+              <td style={{padding:10,borderBottom:'1px solid #26383a'}}>{number(row.median_crop_mae,0)}</td>
+              <td style={{padding:10,borderBottom:'1px solid #26383a'}}>{number(row.median_crop_wape_pct,2)}%</td>
+              <td style={{padding:10,borderBottom:'1px solid #26383a'}}>{number(row.crops_won_by_wape,0)}</td>
+            </tr>)}</tbody>
+          </table></div>
+          <button onClick={()=>void downloadPerCropForecastMetrics()} style={{...selectStyle,marginTop:12}}>
+            <Download size={14} style={{verticalAlign:'middle',marginRight:7}}/>Download per-crop metrics CSV
+          </button>
+          <p style={{color:'#f3bd70',fontSize:12,marginBottom:0}}>
+            The pooled model is experimental. In this holdout it did not beat the naive baseline on median WAPE; this short evaluation does not establish future performance.
+          </p>
+        </> : <p>No published holdout evaluation is available.</p>}
       </Panel>
 
       {experimentalError && <div role="alert" style={{padding:14,border:'1px solid #a85454',background:'#301e22',borderRadius:10,color:'#ffc6c6',marginTop:16}}>
@@ -367,9 +417,9 @@ export default function DashboardSections({section}:{section:string}) {
             />
           </div>
           <p style={{color:'#f3bd70',fontSize:12,marginTop:16,marginBottom:0}}>
-            {experimentalForecast.warning} This model did not outperform the naive baseline
-            on median crop MAE in the 2023–2024 holdout evaluation. Treat this result as
-            experimental, not an official forecast.
+            {experimentalForecast.warning} The pooled model is experimental. Review the
+            comparable holdout evaluation before interpreting it as an improvement over
+            the naive baseline.
           </p>
           <button
             onClick={()=>download(
@@ -417,7 +467,7 @@ export default function DashboardSections({section}:{section:string}) {
           <Metric label="Annual climate records" value={number(climate.length,0)} detail="Available dataset records"/>
           <Metric label="Coverage" value={years.length?`${Math.min(...years)}–${Math.max(...years)}`:'—'} detail="Observed climate years"/>
         </div>
-        {selectedClimate && <p style={{marginBottom:0,marginTop:16,color:'#9aaca8'}}>Selected observation: <strong style={{color:'#70e5ad'}}>{selectedClimate.location}</strong> · {selectedClimate.year} · temperature {number(selectedClimate.mean_temperature_c)}°C · precipitation {number(selectedClimate.total_precipitation)}</p>}
+        {selectedClimate && <p style={{marginBottom:0,marginTop:16,color:'#9aaca8'}}>Selected observation: <strong style={{color:'#70e5ad'}}>{selectedClimate.location}</strong> · {selectedClimate.year} · temperature {number(selectedClimate.mean_temperature_c)}°C · precipitation {number(selectedClimate.total_precipitation)} mm/year</p>}
       </Panel>
     </>}
 
@@ -443,7 +493,7 @@ export default function DashboardSections({section}:{section:string}) {
         <ul style={{color:'#a9bbb5',lineHeight:1.9,paddingLeft:20}}>
           <li>Production history is based on the currently available FAOSTAT-derived project data.</li>
           <li>Climate records cover 2015–2024 for the locations listed by the API.</li>
-          <li>The available stored forecast is for 2025 and must not be presented as a current forecast.</li>
+          <li>Stored forecasts target 2025 and must not be presented as current forecasts.</li>
           <li>Exploratory climate comparisons are not validated crop-suitability or yield-impact models.</li>
           <li>Exports include raw values so results can be independently checked.</li>
         </ul>

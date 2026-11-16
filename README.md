@@ -153,7 +153,8 @@ The repository includes production and climate data workflows, crop analytics en
 
 ## Future improvements
 
-- Broaden forecast evaluation and compare against simple baselines on clearly defined chronological holdouts.
+- Refresh the production dataset and regenerate forecasts when newer observations are available.
+- Extend forecast evaluation to additional rolling-origin holdouts and longer historical periods.
 - Improve uncertainty communication and document model limitations per crop.
 - Strengthen evidence-grounding and handling of questions that the available data cannot answer.
 - Add verified regional and seasonal analyses where the data supports them.

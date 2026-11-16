@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 import pandas as pd
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, jsonify, request, send_file, stream_with_context
 
 from agrimarket.analytics.production import calculate_production_trends
 from agrimarket.analytics.pooled_regression import (
@@ -42,12 +42,20 @@ DEFAULT_FORECAST_PATH = (
 DEFAULT_CLIMATE_PATH = (
     PROJECT_ROOT / "data" / "processed" / "nasa_power_annual.csv"
 )
+DEFAULT_FORECAST_EVALUATION_PATH = (
+    PROJECT_ROOT / "data" / "processed" / "pooled_regression_summary.csv"
+)
+DEFAULT_FORECAST_CROP_METRICS_PATH = (
+    PROJECT_ROOT / "data" / "processed" / "pooled_regression_crop_metrics.csv"
+)
 
 
 def create_app(
     production_path=None,
     forecast_path=None,
     climate_path=None,
+    forecast_evaluation_path=None,
+    forecast_crop_metrics_path=None,
 ):
     app = Flask(__name__)
 
@@ -59,6 +67,12 @@ def create_app(
     )
     app.config["CLIMATE_PATH"] = Path(
         climate_path or DEFAULT_CLIMATE_PATH
+    )
+    app.config["FORECAST_EVALUATION_PATH"] = Path(
+        forecast_evaluation_path or DEFAULT_FORECAST_EVALUATION_PATH
+    )
+    app.config["FORECAST_CROP_METRICS_PATH"] = Path(
+        forecast_crop_metrics_path or DEFAULT_FORECAST_CROP_METRICS_PATH
     )
 
     def load_production():
@@ -219,6 +233,27 @@ def create_app(
             "count": len(selected),
             "forecasts": json_records(selected),
         })
+
+    @app.get("/api/forecast-evaluation")
+    def forecast_evaluation():
+        """Return the published baseline-versus-pooled holdout summary."""
+        path = app.config["FORECAST_EVALUATION_PATH"]
+        if not path.is_file():
+            return jsonify({"error": "Forecast evaluation report not found"}), 503
+        try:
+            report = pd.read_csv(path)
+        except (OSError, pd.errors.ParserError) as exc:
+            return jsonify({"error": f"Could not read forecast evaluation: {exc}"}), 500
+        return jsonify({"count": len(report), "results": json_records(report)})
+
+    @app.get("/api/forecast-evaluation/crops.csv")
+    def forecast_crop_metrics():
+        """Download per-crop normalized and raw holdout metrics."""
+        path = app.config["FORECAST_CROP_METRICS_PATH"]
+        if not path.is_file():
+            return jsonify({"error": "Per-crop forecast metrics not found"}), 503
+        return send_file(path, mimetype="text/csv", as_attachment=True,
+                         download_name="pooled_regression_crop_metrics.csv")
 
 
 
