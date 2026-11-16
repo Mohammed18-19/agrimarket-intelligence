@@ -58,6 +58,12 @@ Returns saved forecast records and available model metadata.
 
 **Important:** Forecasts are model estimates, not observed production figures.
 
+### Forecast evaluation
+
+GET `/api/forecast-evaluation` returns the published naive, linear-trend, and pooled-model holdout comparison.
+
+GET `/api/forecast-evaluation/crops.csv` downloads per-crop MAE, RMSE, and WAPE for the shared holdout.
+
 ### AI Advisor
 
 POST /api/ai/ask

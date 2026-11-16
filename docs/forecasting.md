@@ -1,61 +1,62 @@
 # Agricultural Production Forecasting
 
-## Overview
+## Scope and current status
 
-AgriMarket Intelligence generates baseline annual production forecasts for Moroccan crops from historical FAOSTAT data.
+The checked-in FAOSTAT production dataset contains 92 crops with annual observations from 2015 through 2024. The stored forecasts target 2025 and use observations through 2024. They are historical estimates, not current forecasts. A later forecast requires newer observed production data; rerunning the generator against the current dataset will still produce 2025 estimates.
 
-The current dataset contains 92 crops with annual production observations from 2015 through 2024. The forecast-generation script produces estimates for 2025.
+Forecast generation selects between two simple methods using a chronological validation window:
 
-## Forecasting methods
+- `naive`: repeats the latest observed production value.
+- `linear_trend`: extrapolates a fitted linear trend.
 
-- `naive`: predicts production using the last observed value.
-- `linear_trend`: fits a linear trend to historical production observations.
+Each saved record includes the forecast year, training period, selected method, validation period, and validation MAE. Validation MAE is the selection score, not an unbiased estimate of future performance.
 
-The selection procedure compares both methods on an earlier chronological validation window, then uses the selected method with the available historical observations to forecast the next year.
+## Comparable pooled-model evaluation
 
-## Evaluation
+The pooled Random Forest remains experimental. Compare it with the naive baseline, linear trend, and a selected baseline (naive or trend chosen on a pre-holdout validation window) using:
 
-The chronological holdout evaluation reserves the final two years from method selection. The current results cover 92 crops.
+```bash
+PYTHONPATH=src:. python scripts/evaluate_pooled_regression.py
+```
 
-| Method | Median MAE | Median RMSE |
-|---|---:|---:|
-| Naive baseline | 4,171.38 | 4,831.67 |
-| Linear trend | 7,701.79 | 8,463.84 |
-| Selected method | 6,319.88 | 6,903.60 |
+The evaluator uses the latest two distinct years in the production dataset as a shared chronological holdout. A crop is eligible only when its yearly series is valid and complete, it has both holdout years, and it has at least six pre-holdout observations (four for training and two for baseline selection). All methods are scored on the same crop/year pairs. The script reports eligible and excluded crop counts and the holdout years.
 
-Errors are measured in each crop’s production unit. Because crop production scales vary, these raw-error medians are an initial comparison, not a scale-normalized measure of forecasting quality.
+Current checked-in evaluation (92 crops, 2023–2024 holdout):
 
-The naive baseline performed better on median holdout error than either the linear trend or the selected-method strategy. Model selection does not guarantee better performance on unseen data.
+| Method | Median crop MAE (source units vary) | Median crop WAPE | Mean crop WAPE | Unique crop wins by WAPE |
+|---|---:|---:|---:|---:|
+| Naive | 4,171.38 | 9.99% | 20.62% | 15 |
+| Linear trend | 7,701.79 | 14.10% | 25.63% | 13 |
+| Selected baseline | 6,319.88 | 13.56% | 22.13% | 0 |
+| Pooled Random Forest | 6,930.59 | 12.90% | 23.62% | 17 |
 
-The holdout contains only two years, so results are preliminary and may be sensitive to unusual production conditions.
+The naive baseline performed best by median crop MAE and median crop WAPE. The pooled model had lower median WAPE than the selected baseline and linear trend, but did not beat naive. Unique-win counts omit ties; 47 crops tied for best WAPE across at least two methods. See the per-crop CSV for crop-specific results.
 
-## Commands
+Outputs are written to `data/processed/`:
 
-Run the automated tests:
+- `pooled_regression_holdout_details.csv`: actuals and predictions by crop, year, and method.
+- `pooled_regression_crop_metrics.csv`: per-crop MAE and RMSE in that crop's source unit, plus WAPE.
+- `pooled_regression_summary.csv`: aggregate metrics across crops, eligible crop counts, holdout years, and crop wins by WAPE.
 
-`PYTHONPATH=src:. pytest -q`
+WAPE is calculated within each crop as the sum of absolute errors divided by the sum of absolute actual values. It is undefined when all holdout actuals are zero; such values are excluded from WAPE summaries and crop-win counts. Ties are reported separately from unique crop wins. Raw MAE and RMSE remain useful within a crop but should not be treated as scale-comparable across crops or units. A lower holdout score is evidence on this particular short historical window, not proof of general model superiority.
 
-Evaluate forecasting methods:
+The older baseline-only evaluation can be regenerated with:
 
-`PYTHONPATH=src:. python scripts/validate_forecasting.py`
+```bash
+PYTHONPATH=src:. python scripts/validate_forecasting.py
+```
 
-Generate next-year forecasts:
+## Generate stored forecasts
 
-`PYTHONPATH=src:. python scripts/generate_forecasts.py`
+```bash
+PYTHONPATH=src:. python scripts/generate_forecasts.py
+```
 
-## Outputs
-
-The scripts write local CSV reports under `data/processed/`:
-
-- `forecast_holdout_evaluation.csv`
-- `forecast_holdout_summary.csv`
-- `crop_production_forecasts.csv`
-
-Generated reports do not need to be committed to Git.
+The script targets one year after each crop's latest observation. With the checked-in data, that means 2025. The dashboard labels these stored results historical and does not present them as a current forecast.
 
 ## Limitations
 
-- Forecasts use historical annual production only; climate, soil, prices, irrigation, and other explanatory variables are not included.
-- The two candidate methods are simple baselines, not advanced time-series models.
-- Validation and holdout results are based on a short historical series.
+- Production forecasts use annual production history alone; climate, harvested area, yield, prices, irrigation, and other explanatory variables are not included.
+- The series are short, and the latest two-year holdout is sensitive to unusual conditions.
+- The pooled model uses historical crop-level features and does not establish that pooled learning will generalize to future years.
 - Forecasts are estimates, not guarantees or recommendations for agricultural or financial decisions.
